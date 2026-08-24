@@ -3,18 +3,17 @@ import { query } from "@anthropic-ai/claude-agent-sdk";
 
 export const runtime = "nodejs";
 
-export async function GET() {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return NextResponse.json(
-      { error: "尚未設定 ANTHROPIC_API_KEY，請在 .env.local 補上此環境變數。" },
-      { status: 400 }
-    );
+export async function POST(request: Request) {
+  const { prompt } = await request.json();
+
+  if (typeof prompt !== "string" || !prompt.trim()) {
+    return NextResponse.json({ error: "請輸入 prompt" }, { status: 400 });
   }
 
   try {
     let result = "";
     for await (const message of query({
-      prompt: "Hello, what's 2+2?",
+      prompt,
       options: {
         maxTurns: 1,
         tools: [],

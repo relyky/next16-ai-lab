@@ -4,6 +4,9 @@ import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Textarea } from "@/components/ui/textarea";
+
+const DEFAULT_LLM_PROMPT = "Hello, what's 2+2?";
 
 type TestState = {
   loading: boolean;
@@ -16,14 +19,16 @@ const INITIAL_STATE: TestState = { loading: false, result: null, error: null };
 export default function AgentLabPage() {
   const [helloState, setHelloState] = useState<TestState>(INITIAL_STATE);
   const [llmState, setLlmState] = useState<TestState>(INITIAL_STATE);
+  const [llmPrompt, setLlmPrompt] = useState(DEFAULT_LLM_PROMPT);
 
   async function runTest(
     url: string,
-    setState: React.Dispatch<React.SetStateAction<TestState>>
+    setState: React.Dispatch<React.SetStateAction<TestState>>,
+    init?: RequestInit
   ) {
     setState({ loading: true, result: null, error: null });
     try {
-      const res = await fetch(url);
+      const res = await fetch(url, init);
       const data = await res.json();
       if (!res.ok) {
         setState({ loading: false, result: null, error: data.error ?? "請求失敗" });
@@ -73,12 +78,24 @@ export default function AgentLabPage() {
 
       <Card>
         <CardContent className="flex flex-col gap-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-medium">LLM 測試（Claude Agent SDK）</h2>
+          <h2 className="text-sm font-medium">LLM 測試（Claude Agent SDK）</h2>
+          <Textarea
+            value={llmPrompt}
+            onChange={(e) => setLlmPrompt(e.target.value)}
+            placeholder="輸入要傳給 LLM 的 prompt"
+            rows={3}
+          />
+          <div className="flex justify-end">
             <Button
               size="sm"
-              onClick={() => runTest("/api/llm-test", setLlmState)}
-              disabled={llmState.loading}
+              onClick={() =>
+                runTest("/api/llm-test", setLlmState, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ prompt: llmPrompt }),
+                })
+              }
+              disabled={llmState.loading || !llmPrompt.trim()}
             >
               {llmState.loading ? "呼叫中..." : "執行測試"}
             </Button>
