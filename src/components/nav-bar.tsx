@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 const NAV_ITEMS = [
   { href: "/", label: "首頁" },
   { href: "/chat", label: "對話" },
+  { href: "/chat-tpl", label: "對話範本" },
   { href: "/about", label: "關於" },
 ] as const;
 
