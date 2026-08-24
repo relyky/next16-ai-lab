@@ -1,9 +1,9 @@
+import { ChatInput } from "@/components/chat-input";
 import { CostStructurePie } from "@/components/cost-structure-pie";
 import { ProfitTrendLine } from "@/components/profit-trend-line";
 import { QuarterlyRevenueBars } from "@/components/quarterly-revenue-bars";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 
 function UserMessage({ text }: { text: string }) {
   return (
@@ -81,13 +81,7 @@ export default function ChatPage() {
         />
       </div>
 
-      <div className="sticky bottom-0 flex items-center gap-2 border-t bg-background py-4">
-        <Input
-          placeholder="輸入你的財務問題……（Shift+Enter 換行）"
-          className="flex-1"
-        />
-        <Button size="sm">送出</Button>
-      </div>
+      <ChatInput />
     </div>
   );
 }
