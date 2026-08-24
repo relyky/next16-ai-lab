@@ -8,6 +8,7 @@ const NAV_ITEMS = [
   { href: "/", label: "首頁" },
   { href: "/chat", label: "對話" },
   { href: "/chat-tpl", label: "對話範本" },
+  { href: "/agent-lab", label: "Agent Lab" },
   { href: "/about", label: "關於" },
 ] as const;
 
