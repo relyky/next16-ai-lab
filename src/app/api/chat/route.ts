@@ -3,6 +3,9 @@ import { query, type Options } from "@anthropic-ai/claude-agent-sdk";
 
 export const runtime = "nodejs";
 
+// 模型別名（'fable' | 'opus' | 'sonnet' | 'haiku'）或完整 model ID。
+const DEFAULT_MODEL = "haiku";
+
 const SYSTEM_PROMPT =
   "你是一位專業的財務助手，協助使用者理解財務報表與經營數據。" +
   "回答務必使用繁體中文，語氣專業、簡潔，並在資訊不足時主動說明。";
@@ -25,6 +28,7 @@ export async function POST(request: Request) {
   }
 
   const options: Options = {
+    model: DEFAULT_MODEL,
     maxTurns: 1,
     tools: [],
     systemPrompt: SYSTEM_PROMPT,
