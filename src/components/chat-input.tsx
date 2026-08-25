@@ -7,9 +7,12 @@ import { Textarea } from "@/components/ui/textarea";
 
 export function ChatInput({
   onSubmit,
+  onAbort,
   disabled = false,
 }: {
   onSubmit?: (text: string) => void;
+  /** disabled 代表回覆串流中，此時送出鈕改為「中斷」。 */
+  onAbort: () => void;
   disabled?: boolean;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -52,9 +55,15 @@ export function ChatInput({
         disabled={disabled}
         className="max-h-40 flex-1"
       />
-      <Button size="sm" onClick={handleSubmit} disabled={disabled || !text.trim()}>
-        送出
-      </Button>
+      {disabled ? (
+        <Button size="sm" variant="secondary" onClick={onAbort}>
+          中斷
+        </Button>
+      ) : (
+        <Button size="sm" onClick={handleSubmit} disabled={!text.trim()}>
+          送出
+        </Button>
+      )}
     </div>
   );
 }

@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { ChatInput } from "@/components/chat-input";
 import { Card } from "@/components/ui/card";
+import type { ChatStreamEvent } from "@/lib/chat-stream";
 
 type Message = {
   id: number;
@@ -35,46 +36,116 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
 
   async function handleSubmit(text: string) {
-    const baseId = messages.length;
-    setMessages((prev) => [...prev, { id: baseId, role: "user", text }]);
+    const userMessageId = messages.length;
+    const assistantMessageId = userMessageId + 1;
+    setMessages((prev) => [
+      ...prev,
+      { id: userMessageId, role: "user", text },
+    ]);
     setLoading(true);
+
+    // 助手訊息泡泡在第一個增量到達時才建立，之後就地更新。
+    const upsertReply = (replyText: string) =>
+      setMessages((prev) =>
+        prev.some((m) => m.id === assistantMessageId)
+          ? prev.map((m) =>
+              m.id === assistantMessageId ? { ...m, text: replyText } : m
+            )
+          : [
+              ...prev,
+              { id: assistantMessageId, role: "assistant", text: replyText },
+            ]
+      );
+
+    let accumulated = "";
+    const controller = new AbortController();
+    abortRef.current = controller;
 
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt: text, sessionId: sessionId ?? undefined }),
+        signal: controller.signal,
       });
-      // 伺服器可能回非 JSON 的錯誤頁，先確保解析失敗不會蓋掉真正的錯誤原因。
-      const data = await res.json().catch(() => null);
 
       if (!res.ok) {
+        // 串流尚未開始的錯誤（如格式驗證）仍是 JSON；解析失敗不該蓋掉真正的錯誤原因。
+        const data = await res.json().catch(() => null);
         throw new Error(data?.error ?? `請求失敗（HTTP ${res.status}）`);
       }
-      if (typeof data?.result !== "string") {
+      if (!res.body) {
         throw new Error("回應格式錯誤");
       }
 
-      if (typeof data.sessionId === "string") {
-        setSessionId(data.sessionId);
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let handledAny = false;
+
+      const handleLine = (line: string) => {
+        if (!line.trim()) return;
+
+        let event: ChatStreamEvent;
+        try {
+          event = JSON.parse(line);
+        } catch {
+          // 無法解析代表內容已經不完整，不能靜默吞掉。
+          throw new Error("回應格式錯誤");
+        }
+        if (event.type === "session") {
+          // 中斷時不會有 done，先記住 session id 才能接續下一則訊息。
+          // session 不是回覆內容，單獨收到它不足以視為有效回應。
+          setSessionId(event.sessionId);
+          return;
+        }
+        handledAny = true;
+
+        if (event.type === "delta") {
+          accumulated += event.text;
+          upsertReply(accumulated);
+        } else if (event.type === "done") {
+          setSessionId(event.sessionId);
+          // 最終完整訊息為權威內容；若為空則保留已累積的增量。
+          if (event.result) {
+            accumulated = event.result;
+            upsertReply(accumulated);
+          }
+        } else if (event.type === "error") {
+          throw new Error(event.error);
+        }
+      };
+
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? ""; // 最後一段可能是被切斷的半行。
+        for (const line of lines) handleLine(line);
       }
-      setMessages((prev) => [
-        ...prev,
-        { id: baseId + 1, role: "assistant", text: data.result },
-      ]);
+      handleLine(buffer + decoder.decode()); // decode() 收尾未完成的多位元組字元。
+
+      if (!handledAny) {
+        throw new Error("回應格式錯誤");
+      }
     } catch (err) {
+      // 使用者主動中斷不是失敗：保留已浮現的內容，只加註標示。
+      if (err instanceof DOMException && err.name === "AbortError") {
+        const marker = "（已中斷）";
+        upsertReply(accumulated ? `${accumulated}\n\n${marker}` : marker);
+        return;
+      }
+
       const reason = err instanceof Error ? err.message : "未知錯誤";
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: baseId + 1,
-          role: "assistant",
-          text: `抱歉，這次回覆失敗了：${reason}。請再試一次。`,
-        },
-      ]);
+      const notice = `抱歉，這次回覆失敗了：${reason}。請再試一次。`;
+      // 已浮現的內容保留，錯誤提示接在後面。
+      upsertReply(accumulated ? `${accumulated}\n\n${notice}` : notice);
     } finally {
+      abortRef.current = null;
       setLoading(false);
     }
   }
@@ -99,7 +170,11 @@ export default function ChatPage() {
         )}
       </div>
 
-      <ChatInput onSubmit={handleSubmit} disabled={loading} />
+      <ChatInput
+        onSubmit={handleSubmit}
+        onAbort={() => abortRef.current?.abort()}
+        disabled={loading}
+      />
     </div>
   );
 }
