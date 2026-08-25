@@ -7,7 +7,9 @@
 import { z } from "zod";
 
 /** 圖表類型；決定前端要 render 哪一種 recharts 圖表。 */
-export type ChartType = "line" | "bar" | "area";
+export const CHART_TYPES = ["line", "bar", "area"] as const;
+
+export type ChartType = (typeof CHART_TYPES)[number];
 
 /** 上限用途為避免 LLM 產生過大的資料集拖垮訊息大小與圖表可讀性。 */
 const MAX_DATA_ROWS = 100;
@@ -49,8 +51,17 @@ export const chartInputSchema = z.object(chartInputShape);
 
 export type ChartInput = z.infer<typeof chartInputSchema>;
 
-/** 圖表定義 JSON：tool 的輸出，由前端 ChartCard 依 type 渲染。 */
-export type ChartDefinition = ChartInput & { type: ChartType };
+/**
+ * 圖表定義 JSON：tool 的輸出，由前端 ChartCard 依 type 渲染。
+ *
+ * 同時作為 schema 匯出：tool 產出與前端解析走同一份定義，
+ * 兩端才不會各自對「什麼是合法圖表」有不同認知。
+ */
+export const chartDefinitionSchema = chartInputSchema.extend({
+  type: z.enum(CHART_TYPES),
+});
+
+export type ChartDefinition = z.infer<typeof chartDefinitionSchema>;
 
 /** MCP `CallToolResult` 中我們會用到的部分。 */
 export type ChartToolResult = {

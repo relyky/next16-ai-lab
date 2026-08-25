@@ -281,6 +281,115 @@ describe("POST /api/chat", () => {
     });
   });
 
+  describe("charts tool 產生的圖表", () => {
+    const chart = (type: "line" | "bar" | "area", title: string) => ({
+      type,
+      title,
+      data: [{ month: "1月", revenue: 120 }],
+      xKey: "month",
+      series: [{ key: "revenue" }],
+    });
+
+    /** 產生一次「呼叫圖表工具 → 拿到結果」的訊息往返。 */
+    function chartRoundTrip(id: string, name: string, content: string) {
+      return [
+        {
+          type: "assistant",
+          message: { content: [{ type: "tool_use", id, name, input: {} }] },
+        },
+        {
+          type: "user",
+          message: {
+            content: [{ type: "tool_result", tool_use_id: id, content }],
+          },
+        },
+      ];
+    }
+
+    it("送出 chart 事件，且不干擾文字增量", async () => {
+      const line = chart("line", "月營收");
+      queryMock.mockImplementation(async function* () {
+        yield { type: "system", subtype: "init", session_id: "s-1" };
+        yield {
+          type: "stream_event",
+          event: {
+            type: "content_block_delta",
+            delta: { type: "text_delta", text: "我畫給你看。" },
+          },
+        };
+        yield* chartRoundTrip("t-1", "mcp__charts__line_chart", JSON.stringify(line));
+        yield {
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          result: "如圖所示。",
+          session_id: "s-1",
+        };
+      });
+      const { POST } = await import("./route");
+
+      const res = await POST(chatRequest());
+      const events = await drain(res.body!);
+
+      expect(events).toEqual([
+        { type: "session", sessionId: "s-1" },
+        { type: "delta", text: "我畫給你看。" },
+        { type: "chart", chart: line },
+        { type: "done", result: "如圖所示。", sessionId: "s-1" },
+      ]);
+    });
+
+    it("一則回應含多次圖表呼叫時，依序送出多個 chart 事件", async () => {
+      const line = chart("line", "月營收");
+      const bar = chart("bar", "各部門支出");
+      queryMock.mockImplementation(async function* () {
+        yield { type: "system", subtype: "init", session_id: "s-1" };
+        yield* chartRoundTrip("t-1", "mcp__charts__line_chart", JSON.stringify(line));
+        yield* chartRoundTrip("t-2", "mcp__charts__bar_chart", JSON.stringify(bar));
+        yield {
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          result: "兩張圖如上。",
+          session_id: "s-1",
+        };
+      });
+      const { POST } = await import("./route");
+
+      const res = await POST(chatRequest());
+      const events = await drain(res.body!);
+
+      expect(events.filter((e) => e.type === "chart")).toEqual([
+        { type: "chart", chart: line },
+        { type: "chart", chart: bar },
+      ]);
+    });
+
+    it("圖表工具失敗時不送出 chart 事件", async () => {
+      queryMock.mockImplementation(async function* () {
+        yield { type: "system", subtype: "init", session_id: "s-1" };
+        yield* chartRoundTrip(
+          "t-1",
+          "mcp__charts__line_chart",
+          "圖表參數驗證失敗 → xKey: 不存在"
+        );
+        yield {
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          result: "抱歉，畫不出來。",
+          session_id: "s-1",
+        };
+      });
+      const { POST } = await import("./route");
+
+      const res = await POST(chatRequest());
+      const events = await drain(res.body!);
+
+      expect(events.some((e) => e.type === "chart")).toBe(false);
+    });
+  });
+
   it("LLM 正常回覆完畢時送出 done 並正常關閉串流", async () => {
     queryMock.mockImplementation(async function* () {
       yield { type: "system", subtype: "init", session_id: "s-1" };
