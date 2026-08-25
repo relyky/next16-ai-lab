@@ -58,11 +58,60 @@ async function readUntil(
   return { events, reader };
 }
 
+/** 讀到串流真正結束為止，回傳所有事件。串流未能正常關閉時會在此拋出。 */
+async function drain(body: ReadableStream<Uint8Array>) {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  const events: ChatStreamEvent[] = [];
+  let buffer = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) if (line.trim()) events.push(JSON.parse(line));
+  }
+  return events;
+}
+
 afterEach(() => {
   queryMock.mockReset();
 });
 
 describe("POST /api/chat", () => {
+  it("LLM 正常回覆完畢時送出 done 並正常關閉串流", async () => {
+    queryMock.mockImplementation(async function* () {
+      yield { type: "system", subtype: "init", session_id: "s-1" };
+      yield {
+        type: "stream_event",
+        event: {
+          type: "content_block_delta",
+          delta: { type: "text_delta", text: "本季營收" },
+        },
+      };
+      yield {
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        result: "本季營收成長 12%。",
+        session_id: "s-1",
+      };
+    });
+    const { POST } = await import("./route");
+
+    const res = await POST(chatRequest());
+    // 必須讀到串流「自然結束」而不是讀到 done 就罷手：
+    // close() 在 done 入列之後才呼叫，提早離開就驗不到它。
+    const events = await drain(res.body!);
+
+    expect(events).toEqual([
+      { type: "session", sessionId: "s-1" },
+      { type: "delta", text: "本季營收" },
+      { type: "done", result: "本季營收成長 12%。", sessionId: "s-1" },
+    ]);
+  });
+
   it("串流一開始就送出 session 事件", async () => {
     stallingQuery();
     const { POST } = await import("./route");

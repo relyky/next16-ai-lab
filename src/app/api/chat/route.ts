@@ -55,8 +55,14 @@ export async function POST(request: Request) {
   // NDJSON 串流，事件型別見 @/lib/chat-stream。
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
+      // 已中斷代表串流早已被取消，再 enqueue 或 close 只會拋例外。
       const send = (event: ChatStreamEvent) => {
+        if (abortController.signal.aborted) return;
         controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+      };
+      const close = () => {
+        if (abortController.signal.aborted) return;
+        controller.close();
       };
 
       try {
