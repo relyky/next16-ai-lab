@@ -73,6 +73,89 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+const chartEvent = (type: "line" | "bar" | "area", title: string) => ({
+  type: "chart" as const,
+  chart: {
+    type,
+    title,
+    data: [
+      { month: "1月", revenue: 120 },
+      { month: "2月", revenue: 150 },
+    ],
+    xKey: "month",
+    series: [{ key: "revenue", label: "營收" }],
+  },
+});
+
+describe("Chat page 圖表渲染", () => {
+  it("收到 chart 事件時，在回應泡泡中渲染圖表卡片", async () => {
+    stubFetch(async () =>
+      ndjsonResponse(
+        { type: "delta", text: "我畫給你看。" },
+        chartEvent("line", "月營收趨勢"),
+        { type: "done", result: "如圖所示。", sessionId: "s-1" }
+      )
+    );
+
+    const { container } = render(<ChatPage />);
+    await ask("月營收趨勢如何？");
+
+    expect(await screen.findByText("如圖所示。")).toBeInTheDocument();
+    expect(screen.getByText("月營收趨勢")).toBeInTheDocument();
+    expect(container.querySelectorAll('[data-slot="chart-card"]')).toHaveLength(1);
+  });
+
+  it("一則回應含多個 chart 事件時，依序渲染多張圖表卡片", async () => {
+    stubFetch(async () =>
+      ndjsonResponse(
+        chartEvent("line", "月營收趨勢"),
+        chartEvent("bar", "各部門支出"),
+        { type: "done", result: "兩張圖如上。", sessionId: "s-1" }
+      )
+    );
+
+    const { container } = render(<ChatPage />);
+    await ask("給我兩張圖");
+
+    expect(await screen.findByText("兩張圖如上。")).toBeInTheDocument();
+    const titles = Array.from(
+      container.querySelectorAll('[data-slot="chart-title"]')
+    ).map((el) => el.textContent);
+    expect(titles).toEqual(["月營收趨勢", "各部門支出"]);
+  });
+
+  it("下一則提問的圖表不會混進上一則回應", async () => {
+    const fetchMock = stubFetch(async () =>
+      ndjsonResponse(chartEvent("line", "第一張"), {
+        type: "done",
+        result: "第一則。",
+        sessionId: "s-1",
+      })
+    );
+
+    const { container } = render(<ChatPage />);
+    await ask("第一個問題");
+    await screen.findByText("第一則。");
+
+    fetchMock.mockImplementation(async () =>
+      ndjsonResponse(chartEvent("bar", "第二張"), {
+        type: "done",
+        result: "第二則。",
+        sessionId: "s-1",
+      })
+    );
+    await ask("第二個問題");
+    await screen.findByText("第二則。");
+
+    const bubbles = container.querySelectorAll('[data-slot="assistant-message"]');
+    expect(bubbles).toHaveLength(2);
+    expect(bubbles[0].querySelectorAll('[data-slot="chart-card"]')).toHaveLength(1);
+    expect(bubbles[1].querySelectorAll('[data-slot="chart-card"]')).toHaveLength(1);
+    expect(bubbles[0].textContent).toContain("第一張");
+    expect(bubbles[1].textContent).toContain("第二張");
+  });
+});
+
 describe("Chat page", () => {
   it("逐段顯示串流回覆，並以最終完整內容為準", async () => {
     stubFetch(async () =>

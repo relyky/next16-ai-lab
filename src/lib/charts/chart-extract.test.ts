@@ -1,0 +1,103 @@
+// @vitest-environment node
+import { describe, expect, it } from "vitest";
+
+import { createChartExtractor } from "./chart-extract";
+
+const definition = {
+  type: "line" as const,
+  title: "月營收",
+  data: [{ month: "1月", revenue: 120 }],
+  xKey: "month",
+  series: [{ key: "revenue" }],
+};
+
+function toolUse(id: string, name: string) {
+  return { type: "assistant", message: { content: [{ type: "tool_use", id, name, input: {} }] } };
+}
+
+function toolResult(toolUseId: string, content: unknown) {
+  return {
+    type: "user",
+    message: { content: [{ type: "tool_result", tool_use_id: toolUseId, content }] },
+  };
+}
+
+describe("createChartExtractor", () => {
+  it("取出 charts tool 回傳的圖表定義", () => {
+    const extract = createChartExtractor();
+
+    expect(extract(toolUse("t-1", "mcp__charts__line_chart"))).toEqual([]);
+    expect(extract(toolResult("t-1", JSON.stringify(definition)))).toEqual([definition]);
+  });
+
+  it("圖表內容以陣列形式的 content block 承載時同樣取得出來", () => {
+    const extract = createChartExtractor();
+
+    extract(toolUse("t-1", "mcp__charts__bar_chart"));
+    const chart = { ...definition, type: "bar" as const };
+
+    expect(
+      extract(toolResult("t-1", [{ type: "text", text: JSON.stringify(chart) }]))
+    ).toEqual([chart]);
+  });
+
+  it("一則回應含多次圖表呼叫時，依序取出多張圖表", () => {
+    const extract = createChartExtractor();
+    const second = { ...definition, type: "area" as const, title: "毛利" };
+
+    extract(toolUse("t-1", "mcp__charts__line_chart"));
+    extract(toolUse("t-2", "mcp__charts__area_chart"));
+
+    expect(extract(toolResult("t-1", JSON.stringify(definition)))).toEqual([definition]);
+    expect(extract(toolResult("t-2", JSON.stringify(second)))).toEqual([second]);
+  });
+
+  it("同一則 user message 內含多個圖表結果時一次取出", () => {
+    const extract = createChartExtractor();
+    extract(toolUse("t-1", "mcp__charts__line_chart"));
+    extract(toolUse("t-2", "mcp__charts__line_chart"));
+
+    const message = {
+      type: "user",
+      message: {
+        content: [
+          { type: "tool_result", tool_use_id: "t-1", content: JSON.stringify(definition) },
+          { type: "tool_result", tool_use_id: "t-2", content: JSON.stringify(definition) },
+        ],
+      },
+    };
+
+    expect(extract(message)).toEqual([definition, definition]);
+  });
+
+  it("非 charts server 的 tool_result 一律略過，即使內容恰好符合圖表格式", () => {
+    const extract = createChartExtractor();
+
+    extract(toolUse("t-1", "mcp__qadb__search"));
+
+    expect(extract(toolResult("t-1", JSON.stringify(definition)))).toEqual([]);
+  });
+
+  it("charts tool 回報錯誤時不產生圖表", () => {
+    const extract = createChartExtractor();
+
+    extract(toolUse("t-1", "mcp__charts__line_chart"));
+
+    expect(extract(toolResult("t-1", "圖表參數驗證失敗 → xKey: 不存在"))).toEqual([]);
+  });
+
+  it("內容不符圖表 schema 時不產生圖表", () => {
+    const extract = createChartExtractor();
+
+    extract(toolUse("t-1", "mcp__charts__line_chart"));
+
+    expect(extract(toolResult("t-1", JSON.stringify({ type: "line", data: [] })))).toEqual([]);
+  });
+
+  it("與圖表無關的訊息不影響結果", () => {
+    const extract = createChartExtractor();
+
+    expect(extract({ type: "system", subtype: "init", session_id: "s-1" })).toEqual([]);
+    expect(extract({ type: "stream_event", event: { type: "content_block_delta" } })).toEqual([]);
+  });
+});

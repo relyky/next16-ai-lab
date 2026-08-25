@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { query, type Options } from "@anthropic-ai/claude-agent-sdk";
 
+import { createChartExtractor } from "@/lib/charts/chart-extract";
+import { createChartsMcpServer } from "@/lib/charts/charts-mcp-server";
 import type { ChatStreamEvent } from "@/lib/chat-stream";
 import { getServerConfig } from "@/lib/server-config";
 
@@ -48,12 +50,19 @@ export async function POST(request: Request) {
     includePartialMessages: true,
   };
 
-  if (config.qadbMcpUrl) {
-    options.mcpServers = { qadb: { type: "http", url: config.qadbMcpUrl } };
-    // 伺服器端沒有人能按同意，未顯式放行的工具呼叫會被直接拒絕。
-    // glob 錨定在字面的 mcp__<server>__ 之後，代表放行該 server 的全部工具。
-    options.allowedTools = ["mcp__qadb__*"];
-  }
+  // 伺服器端沒有人能按同意，未顯式放行的工具呼叫會被直接拒絕。
+  // glob 錨定在字面的 mcp__<server>__ 之後，代表放行該 server 的全部工具。
+  // qadb 是外部服務，靠環境變數給 URL；charts 是自家程式碼，直接掛實例。
+  options.mcpServers = {
+    ...(config.qadbMcpUrl
+      ? { qadb: { type: "http" as const, url: config.qadbMcpUrl } }
+      : {}),
+    charts: createChartsMcpServer(),
+  };
+  options.allowedTools = [
+    ...(config.qadbMcpUrl ? ["mcp__qadb__*"] : []),
+    "mcp__charts__*",
+  ];
 
   if (sessionId) {
     options.resume = sessionId;
@@ -74,8 +83,16 @@ export async function POST(request: Request) {
         controller.close();
       };
 
+      // 一次對話一個擷取器：它要記住哪些 tool_use 是 charts 發出的。
+      const extractCharts = createChartExtractor();
+
       try {
         for await (const message of query({ prompt: promptText, options })) {
+          // 圖表定義藏在工具往返裡，與文字增量各走各的，依產生順序送出。
+          for (const chart of extractCharts(message)) {
+            send({ type: "chart", chart });
+          }
+
           // 中斷時尚未收到 done，先送出 session id 讓前端仍能接續下一則訊息。
           if (message.type === "system" && message.subtype === "init") {
             send({ type: "session", sessionId: message.session_id });

@@ -5,7 +5,9 @@ import type { ChatStreamEvent } from "@/lib/chat-stream";
 
 const queryMock = vi.hoisted(() => vi.fn());
 
-vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
+// 只換掉 query；tool / createSdkMcpServer 需維持真實，charts server 才建得起來。
+vi.mock("@anthropic-ai/claude-agent-sdk", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@anthropic-ai/claude-agent-sdk")>()),
   query: queryMock,
 }));
 
@@ -136,20 +138,21 @@ describe("POST /api/chat", () => {
 
       const options = await captureOptions();
 
-      expect(options.mcpServers).toEqual({
-        qadb: { type: "http", url: "http://localhost:5152/graphql/mcp" },
+      expect(options.mcpServers?.qadb).toEqual({
+        type: "http",
+        url: "http://localhost:5152/graphql/mcp",
       });
       // 伺服器端沒有人能按同意，未放行的工具呼叫會被直接拒絕。
-      expect(options.allowedTools).toEqual(["mcp__qadb__*"]);
+      expect(options.allowedTools).toContain("mcp__qadb__*");
     });
 
-    it("未設定時不掛載任何 MCP server、也不放行任何工具", async () => {
+    it("未設定時不掛載 qadb、也不放行其工具", async () => {
       vi.stubEnv("QADB_MCP_URL", undefined);
 
       const options = await captureOptions();
 
-      expect(options.mcpServers).toBeUndefined();
-      expect(options.allowedTools).toBeUndefined();
+      expect(options.mcpServers).not.toHaveProperty("qadb");
+      expect(options.allowedTools).not.toContain("mcp__qadb__*");
     });
 
     it("設定值前後的空白會被去除", async () => {
@@ -167,10 +170,40 @@ describe("POST /api/chat", () => {
 
       const options = await captureOptions();
 
-      expect(options.mcpServers).toBeUndefined();
-      expect(options.allowedTools).toBeUndefined();
+      expect(options.mcpServers).not.toHaveProperty("qadb");
+      expect(options.allowedTools).not.toContain("mcp__qadb__*");
+    });
+  });
+
+  describe("charts MCP server（in-process）", () => {
+    it("一律掛載，不需環境變數，並顯式放行其工具", async () => {
+      vi.stubEnv("QADB_MCP_URL", undefined);
+
+      const options = await captureOptions();
+
+      // in-process server 帶的是 live 的 McpServer 實例，不是 URL。
+      expect(options.mcpServers?.charts).toMatchObject({
+        type: "sdk",
+        name: "charts",
+      });
+      expect(options.allowedTools).toEqual(["mcp__charts__*"]);
     });
 
+    it("qadb 也設定時兩者並存，並各自放行", async () => {
+      vi.stubEnv("QADB_MCP_URL", "http://localhost:5152/graphql/mcp");
+
+      const options = await captureOptions();
+
+      expect(options.mcpServers?.qadb).toEqual({
+        type: "http",
+        url: "http://localhost:5152/graphql/mcp",
+      });
+      expect(options.mcpServers?.charts).toMatchObject({ type: "sdk" });
+      expect(options.allowedTools).toEqual(["mcp__qadb__*", "mcp__charts__*"]);
+    });
+  });
+
+  describe("工具往返的 turn 上限", () => {
     it("turn 上限足以完成多次工具往返", async () => {
       // 一次工具往返最少兩個 turn；連續查幾次再收斂需要更多。
       // 斷言語意而非特定數字，日後調值不會誤紅。
@@ -245,6 +278,115 @@ describe("POST /api/chat", () => {
         { type: "delta", text: "共 5 個專案。" },
         { type: "done", result: "共 5 個專案。", sessionId: "s-1" },
       ]);
+    });
+  });
+
+  describe("charts tool 產生的圖表", () => {
+    const chart = (type: "line" | "bar" | "area", title: string) => ({
+      type,
+      title,
+      data: [{ month: "1月", revenue: 120 }],
+      xKey: "month",
+      series: [{ key: "revenue" }],
+    });
+
+    /** 產生一次「呼叫圖表工具 → 拿到結果」的訊息往返。 */
+    function chartRoundTrip(id: string, name: string, content: string) {
+      return [
+        {
+          type: "assistant",
+          message: { content: [{ type: "tool_use", id, name, input: {} }] },
+        },
+        {
+          type: "user",
+          message: {
+            content: [{ type: "tool_result", tool_use_id: id, content }],
+          },
+        },
+      ];
+    }
+
+    it("送出 chart 事件，且不干擾文字增量", async () => {
+      const line = chart("line", "月營收");
+      queryMock.mockImplementation(async function* () {
+        yield { type: "system", subtype: "init", session_id: "s-1" };
+        yield {
+          type: "stream_event",
+          event: {
+            type: "content_block_delta",
+            delta: { type: "text_delta", text: "我畫給你看。" },
+          },
+        };
+        yield* chartRoundTrip("t-1", "mcp__charts__line_chart", JSON.stringify(line));
+        yield {
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          result: "如圖所示。",
+          session_id: "s-1",
+        };
+      });
+      const { POST } = await import("./route");
+
+      const res = await POST(chatRequest());
+      const events = await drain(res.body!);
+
+      expect(events).toEqual([
+        { type: "session", sessionId: "s-1" },
+        { type: "delta", text: "我畫給你看。" },
+        { type: "chart", chart: line },
+        { type: "done", result: "如圖所示。", sessionId: "s-1" },
+      ]);
+    });
+
+    it("一則回應含多次圖表呼叫時，依序送出多個 chart 事件", async () => {
+      const line = chart("line", "月營收");
+      const bar = chart("bar", "各部門支出");
+      queryMock.mockImplementation(async function* () {
+        yield { type: "system", subtype: "init", session_id: "s-1" };
+        yield* chartRoundTrip("t-1", "mcp__charts__line_chart", JSON.stringify(line));
+        yield* chartRoundTrip("t-2", "mcp__charts__bar_chart", JSON.stringify(bar));
+        yield {
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          result: "兩張圖如上。",
+          session_id: "s-1",
+        };
+      });
+      const { POST } = await import("./route");
+
+      const res = await POST(chatRequest());
+      const events = await drain(res.body!);
+
+      expect(events.filter((e) => e.type === "chart")).toEqual([
+        { type: "chart", chart: line },
+        { type: "chart", chart: bar },
+      ]);
+    });
+
+    it("圖表工具失敗時不送出 chart 事件", async () => {
+      queryMock.mockImplementation(async function* () {
+        yield { type: "system", subtype: "init", session_id: "s-1" };
+        yield* chartRoundTrip(
+          "t-1",
+          "mcp__charts__line_chart",
+          "圖表參數驗證失敗 → xKey: 不存在"
+        );
+        yield {
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          result: "抱歉，畫不出來。",
+          session_id: "s-1",
+        };
+      });
+      const { POST } = await import("./route");
+
+      const res = await POST(chatRequest());
+      const events = await drain(res.body!);
+
+      expect(events.some((e) => e.type === "chart")).toBe(false);
     });
   });
 

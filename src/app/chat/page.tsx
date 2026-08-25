@@ -2,14 +2,18 @@
 
 import { useRef, useState } from "react";
 
+import { ChartCard } from "@/components/chart-card";
 import { ChatInput } from "@/components/chat-input";
 import { Card } from "@/components/ui/card";
+import type { ChartDefinition } from "@/lib/charts/chart-tool";
 import type { ChatStreamEvent } from "@/lib/chat-stream";
 
 type Message = {
   id: number;
   role: "user" | "assistant";
   text: string;
+  /** 本則回應中助手產生的圖表，依產生順序排列；只有 assistant 會有。 */
+  charts?: ChartDefinition[];
 };
 
 function UserMessage({ text }: { text: string }) {
@@ -22,11 +26,26 @@ function UserMessage({ text }: { text: string }) {
   );
 }
 
-function AssistantMessage({ text }: { text: string }) {
+function AssistantMessage({ text, charts }: { text: string; charts?: ChartDefinition[] }) {
   return (
     <div className="flex justify-start">
-      <Card className="max-w-[90%] p-0">
-        <div className="px-4 py-3 text-sm whitespace-pre-wrap">{text}</div>
+      {/* 有圖表時撐滿寬度，圖表才有可讀的尺寸；純文字則維持隨內容縮放。 */}
+      <Card
+        data-slot="assistant-message"
+        className={charts?.length ? "w-[90%] p-0" : "max-w-[90%] p-0"}
+      >
+        {/* 圖表可能比文字先到；文字還沒有內容時不留空白區塊。 */}
+        {text ? (
+          <div className="px-4 py-3 text-sm whitespace-pre-wrap">{text}</div>
+        ) : null}
+        {charts?.length ? (
+          <div className="flex flex-col gap-3 px-4 pb-4">
+            {charts.map((chart, index) => (
+              // 圖表沒有天然的識別碼，同一則回應中的順序即其身分。
+              <ChartCard key={index} chart={chart} />
+            ))}
+          </div>
+        ) : null}
       </Card>
     </div>
   );
@@ -47,20 +66,23 @@ export default function ChatPage() {
     ]);
     setLoading(true);
 
-    // 助手訊息泡泡在第一個增量到達時才建立，之後就地更新。
-    const upsertReply = (replyText: string) =>
+    // 助手訊息泡泡在第一個事件到達時才建立，之後就地更新。
+    // 文字與圖表各自到達，故以「要改哪些欄位」為單位更新同一則訊息。
+    const upsertReply = (patch: Partial<Omit<Message, "id" | "role">>) =>
       setMessages((prev) =>
         prev.some((m) => m.id === assistantMessageId)
           ? prev.map((m) =>
-              m.id === assistantMessageId ? { ...m, text: replyText } : m
+              m.id === assistantMessageId ? { ...m, ...patch } : m
             )
           : [
               ...prev,
-              { id: assistantMessageId, role: "assistant", text: replyText },
+              { id: assistantMessageId, role: "assistant", text: "", ...patch },
             ]
       );
 
     let accumulated = "";
+    // 圖表事件不會重送，累積在本地才能與文字更新一起送進同一則訊息。
+    const charts: ChartDefinition[] = [];
     const controller = new AbortController();
     abortRef.current = controller;
 
@@ -106,13 +128,16 @@ export default function ChatPage() {
 
         if (event.type === "delta") {
           accumulated += event.text;
-          upsertReply(accumulated);
+          upsertReply({ text: accumulated });
+        } else if (event.type === "chart") {
+          charts.push(event.chart);
+          upsertReply({ charts: [...charts] });
         } else if (event.type === "done") {
           setSessionId(event.sessionId);
           // 最終完整訊息為權威內容；若為空則保留已累積的增量。
           if (event.result) {
             accumulated = event.result;
-            upsertReply(accumulated);
+            upsertReply({ text: accumulated });
           }
         } else if (event.type === "error") {
           throw new Error(event.error);
@@ -136,14 +161,14 @@ export default function ChatPage() {
       // 使用者主動中斷不是失敗：保留已浮現的內容，只加註標示。
       if (err instanceof DOMException && err.name === "AbortError") {
         const marker = "（已中斷）";
-        upsertReply(accumulated ? `${accumulated}\n\n${marker}` : marker);
+        upsertReply({ text: accumulated ? `${accumulated}\n\n${marker}` : marker });
         return;
       }
 
       const reason = err instanceof Error ? err.message : "未知錯誤";
       const notice = `抱歉，這次回覆失敗了：${reason}。請再試一次。`;
       // 已浮現的內容保留，錯誤提示接在後面。
-      upsertReply(accumulated ? `${accumulated}\n\n${notice}` : notice);
+      upsertReply({ text: accumulated ? `${accumulated}\n\n${notice}` : notice });
     } finally {
       abortRef.current = null;
       setLoading(false);
@@ -162,7 +187,11 @@ export default function ChatPage() {
           message.role === "user" ? (
             <UserMessage key={message.id} text={message.text} />
           ) : (
-            <AssistantMessage key={message.id} text={message.text} />
+            <AssistantMessage
+              key={message.id}
+              text={message.text}
+              charts={message.charts}
+            />
           )
         )}
         {loading && (
