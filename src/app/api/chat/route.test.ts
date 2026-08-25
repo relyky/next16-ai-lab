@@ -140,7 +140,7 @@ describe("POST /api/chat", () => {
         qadb: { type: "http", url: "http://localhost:5152/graphql/mcp" },
       });
       // 伺服器端沒有人能按同意，未放行的工具呼叫會被直接拒絕。
-      expect(options.allowedTools).toContain("mcp__qadb");
+      expect(options.allowedTools).toEqual(["mcp__qadb__*"]);
     });
 
     it("未設定時不掛載任何 MCP server、也不放行任何工具", async () => {

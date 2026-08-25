@@ -51,7 +51,8 @@ export async function POST(request: Request) {
   if (config.qadbMcpUrl) {
     options.mcpServers = { qadb: { type: "http", url: config.qadbMcpUrl } };
     // 伺服器端沒有人能按同意，未顯式放行的工具呼叫會被直接拒絕。
-    options.allowedTools = ["mcp__qadb", "mcp__qadb__*"];
+    // glob 錨定在字面的 mcp__<server>__ 之後，代表放行該 server 的全部工具。
+    options.allowedTools = ["mcp__qadb__*"];
   }
 
   if (sessionId) {
