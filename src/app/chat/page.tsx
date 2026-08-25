@@ -96,12 +96,15 @@ export default function ChatPage() {
           // 無法解析代表內容已經不完整，不能靜默吞掉。
           throw new Error("回應格式錯誤");
         }
-        handledAny = true;
-
         if (event.type === "session") {
           // 中斷時不會有 done，先記住 session id 才能接續下一則訊息。
+          // session 不是回覆內容，單獨收到它不足以視為有效回應。
           setSessionId(event.sessionId);
-        } else if (event.type === "delta") {
+          return;
+        }
+        handledAny = true;
+
+        if (event.type === "delta") {
           accumulated += event.text;
           upsertReply(accumulated);
         } else if (event.type === "done") {

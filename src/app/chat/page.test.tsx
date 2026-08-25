@@ -270,6 +270,15 @@ describe("Chat page", () => {
     expect(await screen.findByText(/回應格式錯誤/)).toBeInTheDocument();
   });
 
+  it("只收到 session 事件就斷線時顯示錯誤，不會靜默無反應", async () => {
+    stubFetch(async () => ndjsonResponse({ type: "session", sessionId: "s-1" }));
+
+    render(<ChatPage />);
+    await ask("這季營收如何？");
+
+    expect(await screen.findByText(/回應格式錯誤/)).toBeInTheDocument();
+  });
+
   it("回應不是 NDJSON 時顯示錯誤，不會靜默吞掉內容", async () => {
     stubFetch(async () =>
       streamResponse([new TextEncoder().encode("<html>500</html>")])
