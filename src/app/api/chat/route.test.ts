@@ -82,57 +82,169 @@ afterEach(() => {
 
 /** 取出本次呼叫 LLM 時傳入的 options。 */
 function capturedOptions() {
-  return queryMock.mock.calls[0][0].options as { model?: string };
+  return queryMock.mock.calls[0][0].options as {
+    model?: string;
+    maxTurns?: number;
+    mcpServers?: Record<string, { type: string; url: string }>;
+    allowedTools?: string[];
+  };
+}
+
+/** 跑完一次請求，只為取得傳給 LLM 的 options。 */
+async function captureOptions() {
+  stallingQuery();
+  const { POST } = await import("./route");
+
+  const res = await POST(chatRequest());
+  const { reader } = await readUntil(res.body!, "delta");
+  await reader.cancel();
+
+  return capturedOptions();
 }
 
 describe("POST /api/chat", () => {
   describe("MODEL 環境變數", () => {
     it("未設定時使用預設模型 haiku", async () => {
       vi.stubEnv("MODEL", undefined);
-      stallingQuery();
-      const { POST } = await import("./route");
 
-      const res = await POST(chatRequest());
-      const { reader } = await readUntil(res.body!, "delta");
-      await reader.cancel();
-
-      expect(capturedOptions().model).toBe("haiku");
+      expect((await captureOptions()).model).toBe("haiku");
     });
 
     it("已設定時改用指定的模型", async () => {
       vi.stubEnv("MODEL", "sonnet");
-      stallingQuery();
-      const { POST } = await import("./route");
 
-      const res = await POST(chatRequest());
-      const { reader } = await readUntil(res.body!, "delta");
-      await reader.cancel();
-
-      expect(capturedOptions().model).toBe("sonnet");
+      expect((await captureOptions()).model).toBe("sonnet");
     });
 
     it("設定值前後的空白會被去除", async () => {
       vi.stubEnv("MODEL", "  claude-sonnet-5  ");
-      stallingQuery();
-      const { POST } = await import("./route");
 
-      const res = await POST(chatRequest());
-      const { reader } = await readUntil(res.body!, "delta");
-      await reader.cancel();
-
-      expect(capturedOptions().model).toBe("claude-sonnet-5");
+      expect((await captureOptions()).model).toBe("claude-sonnet-5");
     });
 
     it("設定值為純空白時視同未設定", async () => {
       vi.stubEnv("MODEL", "   ");
-      stallingQuery();
+
+      expect((await captureOptions()).model).toBe("haiku");
+    });
+  });
+
+
+  describe("QADB_MCP_URL 環境變數", () => {
+    it("已設定時以 HTTP transport 掛上 qadb，並顯式放行其工具", async () => {
+      vi.stubEnv("QADB_MCP_URL", "http://localhost:5152/graphql/mcp");
+
+      const options = await captureOptions();
+
+      expect(options.mcpServers).toEqual({
+        qadb: { type: "http", url: "http://localhost:5152/graphql/mcp" },
+      });
+      // 伺服器端沒有人能按同意，未放行的工具呼叫會被直接拒絕。
+      expect(options.allowedTools).toContain("mcp__qadb");
+    });
+
+    it("未設定時不掛載任何 MCP server、也不放行任何工具", async () => {
+      vi.stubEnv("QADB_MCP_URL", undefined);
+
+      const options = await captureOptions();
+
+      expect(options.mcpServers).toBeUndefined();
+      expect(options.allowedTools).toBeUndefined();
+    });
+
+    it("設定值前後的空白會被去除", async () => {
+      vi.stubEnv("QADB_MCP_URL", "  http://localhost:5152/graphql/mcp  ");
+
+      const options = await captureOptions();
+
+      expect(options.mcpServers?.qadb.url).toBe(
+        "http://localhost:5152/graphql/mcp"
+      );
+    });
+
+    it("設定值為純空白時視同未設定", async () => {
+      vi.stubEnv("QADB_MCP_URL", "   ");
+
+      const options = await captureOptions();
+
+      expect(options.mcpServers).toBeUndefined();
+      expect(options.allowedTools).toBeUndefined();
+    });
+
+    it("turn 上限足以完成多次工具往返", async () => {
+      // 一次工具往返最少兩個 turn；連續查幾次再收斂需要更多。
+      // 斷言語意而非特定數字，日後調值不會誤紅。
+      expect((await captureOptions()).maxTurns).toBeGreaterThanOrEqual(4);
+    });
+  });
+
+  describe("工具往返不破壞串流事件流", () => {
+    it("忽略中間的 tool_use 與 tool_result 訊息，且不外洩工具參數片段", async () => {
+      queryMock.mockImplementation(async function* () {
+        yield { type: "system", subtype: "init", session_id: "s-1" };
+        yield {
+          type: "stream_event",
+          event: {
+            type: "content_block_delta",
+            delta: { type: "text_delta", text: "我查一下。" },
+          },
+        };
+        // 工具參數的逐字增量：不得被當成回覆文字送出。
+        yield {
+          type: "stream_event",
+          event: {
+            type: "content_block_delta",
+            delta: { type: "input_json_delta", partial_json: '{"first":' },
+          },
+        };
+        yield {
+          type: "assistant",
+          message: {
+            content: [
+              {
+                type: "tool_use",
+                id: "t-1",
+                name: "mcp__qadb__search_asvt_project_basic",
+                input: { first: 5 },
+              },
+            ],
+          },
+        };
+        yield {
+          type: "user",
+          message: {
+            content: [
+              { type: "tool_result", tool_use_id: "t-1", content: "[...]" },
+            ],
+          },
+        };
+        yield {
+          type: "stream_event",
+          event: {
+            type: "content_block_delta",
+            delta: { type: "text_delta", text: "共 5 個專案。" },
+          },
+        };
+        yield {
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          result: "共 5 個專案。",
+          session_id: "s-1",
+        };
+      });
       const { POST } = await import("./route");
 
       const res = await POST(chatRequest());
-      const { reader } = await readUntil(res.body!, "delta");
-      await reader.cancel();
+      // drain 讀到串流自然結束，一併驗證工具往返後仍正常收尾關閉。
+      const events = await drain(res.body!);
 
-      expect(capturedOptions().model).toBe("haiku");
+      expect(events).toEqual([
+        { type: "session", sessionId: "s-1" },
+        { type: "delta", text: "我查一下。" },
+        { type: "delta", text: "共 5 個專案。" },
+        { type: "done", result: "共 5 個專案。", sessionId: "s-1" },
+      ]);
     });
   });
 

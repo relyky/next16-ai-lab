@@ -8,6 +8,8 @@
 export type ServerConfig = {
   /** 模型別名（'fable' | 'opus' | 'sonnet' | 'haiku'）或完整 model ID。 */
   model: string;
+  /** qadb MCP server 的 HTTP endpoint；未設定即不掛載 qadb。 */
+  qadbMcpUrl?: string;
 };
 
 /** 未設定 `MODEL` 時採用的模型。 */
@@ -17,5 +19,6 @@ export function getServerConfig(): ServerConfig {
   return {
     // 空字串與純空白視同未設定。
     model: process.env.MODEL?.trim() || DEFAULT_MODEL,
+    qadbMcpUrl: process.env.QADB_MCP_URL?.trim() || undefined,
   };
 }
