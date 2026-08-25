@@ -60,11 +60,7 @@ export function ChatInput({
           中斷
         </Button>
       ) : (
-        <Button
-          size="sm"
-          onClick={handleSubmit}
-          disabled={disabled || !text.trim()}
-        >
+        <Button size="sm" onClick={handleSubmit} disabled={!text.trim()}>
           送出
         </Button>
       )}

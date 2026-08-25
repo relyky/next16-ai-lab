@@ -100,7 +100,7 @@ export async function POST(request: Request) {
 
         send({ type: "error", error: "LLM 沒有回應" });
       } catch (error) {
-        // 中斷是預期行為，不算失敗。
+        // 中斷會讓 query() 拋 AbortError，但那是預期行為，send 已自行略過。
         send({
           type: "error",
           error: error instanceof Error ? error.message : "LLM 呼叫失敗",

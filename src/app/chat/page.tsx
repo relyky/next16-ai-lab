@@ -132,9 +132,8 @@ export default function ChatPage() {
     } catch (err) {
       // 使用者主動中斷不是失敗：保留已浮現的內容，只加註標示。
       if (err instanceof DOMException && err.name === "AbortError") {
-        upsertReply(accumulated ? `${accumulated}
-
-（已中斷）` : "（已中斷）");
+        const marker = "（已中斷）";
+        upsertReply(accumulated ? `${accumulated}\n\n${marker}` : marker);
         return;
       }
 
