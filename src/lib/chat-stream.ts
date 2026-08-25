@@ -1,5 +1,7 @@
 /** `/api/chat` 的 NDJSON 串流協定：每行一個事件，前後端共用。 */
 export type ChatStreamEvent =
+  /** 本次對話的 session id，串流一開始就送出（中斷時也已取得，可用於接續） */
+  | { type: "session"; sessionId: string }
   /** 逐字增量 */
   | { type: "delta"; text: string }
   /** 權威的完整內容（串流正常結束） */

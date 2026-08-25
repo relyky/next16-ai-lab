@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { ChatInput } from "@/components/chat-input";
 import { Card } from "@/components/ui/card";
@@ -36,6 +36,7 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
 
   async function handleSubmit(text: string) {
     const userMessageId = messages.length;
@@ -60,12 +61,15 @@ export default function ChatPage() {
       );
 
     let accumulated = "";
+    const controller = new AbortController();
+    abortRef.current = controller;
 
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt: text, sessionId: sessionId ?? undefined }),
+        signal: controller.signal,
       });
 
       if (!res.ok) {
@@ -94,7 +98,10 @@ export default function ChatPage() {
         }
         handledAny = true;
 
-        if (event.type === "delta") {
+        if (event.type === "session") {
+          // 中斷時不會有 done，先記住 session id 才能接續下一則訊息。
+          setSessionId(event.sessionId);
+        } else if (event.type === "delta") {
           accumulated += event.text;
           upsertReply(accumulated);
         } else if (event.type === "done") {
@@ -123,11 +130,20 @@ export default function ChatPage() {
         throw new Error("回應格式錯誤");
       }
     } catch (err) {
+      // 使用者主動中斷不是失敗：保留已浮現的內容，只加註標示。
+      if (err instanceof DOMException && err.name === "AbortError") {
+        upsertReply(accumulated ? `${accumulated}
+
+（已中斷）` : "（已中斷）");
+        return;
+      }
+
       const reason = err instanceof Error ? err.message : "未知錯誤";
       const notice = `抱歉，這次回覆失敗了：${reason}。請再試一次。`;
       // 已浮現的內容保留，錯誤提示接在後面。
       upsertReply(accumulated ? `${accumulated}\n\n${notice}` : notice);
     } finally {
+      abortRef.current = null;
       setLoading(false);
     }
   }
@@ -152,7 +168,11 @@ export default function ChatPage() {
         )}
       </div>
 
-      <ChatInput onSubmit={handleSubmit} disabled={loading} />
+      <ChatInput
+        onSubmit={handleSubmit}
+        onAbort={() => abortRef.current?.abort()}
+        disabled={loading}
+      />
     </div>
   );
 }

@@ -33,6 +33,27 @@ function streamResponse(chunks: Uint8Array[]) {
   } as unknown as Response;
 }
 
+/** 送出前段事件後停住，直到 fetch 的 signal 被中止才讓 read() 以 AbortError 拒絕。 */
+function abortableStreamResponse(chunks: Uint8Array[], signal?: AbortSignal) {
+  let i = 0;
+  return {
+    ok: true,
+    status: 200,
+    body: {
+      getReader: () => ({
+        read: () =>
+          i < chunks.length
+            ? Promise.resolve({ done: false, value: chunks[i++] })
+            : new Promise<never>((_, reject) => {
+                signal?.addEventListener("abort", () =>
+                  reject(new DOMException("Aborted", "AbortError"))
+                );
+              }),
+      }),
+    },
+  } as unknown as Response;
+}
+
 function ndjson(...events: unknown[]) {
   return events.map((e) => `${JSON.stringify(e)}\n`).join("");
 }
@@ -128,6 +149,67 @@ describe("Chat page", () => {
       prompt: "第一個問題",
     });
     expect(JSON.parse(fetchMock.mock.calls[0][1].body).sessionId).toBeUndefined();
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toMatchObject({
+      prompt: "追問",
+      sessionId: "s-1",
+    });
+  });
+
+  it("串流期間顯示中斷按鈕，點擊後保留已顯示文字並標示已中斷", async () => {
+    const fetchMock = stubFetch(async (_input, init) =>
+      abortableStreamResponse(
+        [
+          new TextEncoder().encode(
+            ndjson(
+              { type: "session", sessionId: "s-1" },
+              { type: "delta", text: "本季營收" }
+            )
+          ),
+        ],
+        init?.signal ?? undefined
+      )
+    );
+
+    const user = userEvent.setup();
+    render(<ChatPage />);
+    await ask("這季營收如何？");
+
+    await screen.findByText("本季營收");
+    await user.click(await screen.findByRole("button", { name: "中斷" }));
+
+    expect(await screen.findByText(/本季營收/)).toBeInTheDocument();
+    expect(screen.getByText(/已中斷/)).toBeInTheDocument();
+    expect(screen.queryByText(/抱歉/)).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls[0][1].signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("中斷後可繼續提問，並帶上中斷前取得的 sessionId", async () => {
+    const fetchMock = stubFetch(async (_input, init) =>
+      fetchMock.mock.calls.length === 1
+        ? abortableStreamResponse(
+            [
+              new TextEncoder().encode(
+                ndjson(
+                  { type: "session", sessionId: "s-1" },
+                  { type: "delta", text: "本季營收" }
+                )
+              ),
+            ],
+            init?.signal ?? undefined
+          )
+        : ndjsonResponse({ type: "done", result: "好的。", sessionId: "s-2" })
+    );
+
+    const user = userEvent.setup();
+    render(<ChatPage />);
+    await ask("這季營收如何？");
+    await screen.findByText("本季營收");
+    await user.click(await screen.findByRole("button", { name: "中斷" }));
+
+    await screen.findByText(/已中斷/);
+    await ask("追問");
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toMatchObject({
       prompt: "追問",
       sessionId: "s-1",

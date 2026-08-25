@@ -30,7 +30,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "sessionId 格式錯誤" }, { status: 400 });
   }
 
+  // 前端 fetch 的 AbortController 無法跨 HTTP 傳到後端；改為在此另建一個，
+  // 由「用戶端斷線」與「回應串流被取消」兩個訊號觸發，讓 LLM 端一併停止產生。
+  const abortController = new AbortController();
+  const abort = () => abortController.abort();
+  request.signal.addEventListener("abort", abort);
+
   const options: Options = {
+    abortController,
     model: DEFAULT_MODEL,
     maxTurns: 1,
     tools: [],
@@ -54,6 +61,12 @@ export async function POST(request: Request) {
 
       try {
         for await (const message of query({ prompt: promptText, options })) {
+          // 中斷時尚未收到 done，先送出 session id 讓前端仍能接續下一則訊息。
+          if (message.type === "system" && message.subtype === "init") {
+            send({ type: "session", sessionId: message.session_id });
+            continue;
+          }
+
           if (message.type === "stream_event") {
             const { event } = message;
             if (
@@ -81,19 +94,24 @@ export async function POST(request: Request) {
             });
           }
 
-          controller.close();
+          close();
           return;
         }
 
         send({ type: "error", error: "LLM 沒有回應" });
       } catch (error) {
+        // 中斷是預期行為，不算失敗。
         send({
           type: "error",
           error: error instanceof Error ? error.message : "LLM 呼叫失敗",
         });
       }
 
-      controller.close();
+      close();
+    },
+
+    cancel() {
+      abort();
     },
   });
 
