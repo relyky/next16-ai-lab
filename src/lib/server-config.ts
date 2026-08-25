@@ -10,12 +10,12 @@ export type ServerConfig = {
   llmModel: string;
 };
 
-/** 未設定 `LLM_MODEL` 時採用的模型。 */
+/** 未設定 `MODEL` 時採用的模型。 */
 const DEFAULT_LLM_MODEL = "haiku";
 
 export function getServerConfig(): ServerConfig {
   return {
     // 空字串與純空白視同未設定。
-    llmModel: process.env.LLM_MODEL?.trim() || DEFAULT_LLM_MODEL,
+    llmModel: process.env.MODEL?.trim() || DEFAULT_LLM_MODEL,
   };
 }
