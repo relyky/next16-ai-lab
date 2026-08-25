@@ -6,12 +6,7 @@
  */
 import { z } from "zod";
 
-/**
- * 圖表類型；決定前端要 render 哪一種 recharts 圖表。
- *
- * 目前只註冊 line tool，bar/area 由後續票補上——列在此是為了讓
- * `buildChartResult` 屆時能原封不動被複用，不必回頭改動這個型別。
- */
+/** 圖表類型；決定前端要 render 哪一種 recharts 圖表。 */
 export type ChartType = "line" | "bar" | "area";
 
 /** 上限用途為避免 LLM 產生過大的資料集拖垮訊息大小與圖表可讀性。 */
