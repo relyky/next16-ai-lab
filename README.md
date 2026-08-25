@@ -20,6 +20,16 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## 環境變數
+
+在專案根目錄建立 `.env.local`（可複製 `.env.example`），設定後需重啟 dev server 才生效。
+這些設定僅存在於伺服器端，不加 `NEXT_PUBLIC_` 前綴，不會被打包進瀏覽器。
+
+| 名稱 | 必填 | 預設值 | 說明 |
+| --- | --- | --- | --- |
+| `ANTHROPIC_API_KEY` | 是 | 無 | 呼叫 Claude API 用的金鑰。 |
+| `LLM_MODEL` | 否 | `haiku` | chat 使用的 LLM 模型，可填別名（`fable` / `opus` / `sonnet` / `haiku`）或完整 model ID（例如 `claude-sonnet-5`）。空字串或純空白視同未設定。 |
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:

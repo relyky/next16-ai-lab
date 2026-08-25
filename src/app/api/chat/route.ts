@@ -2,11 +2,9 @@ import { NextResponse } from "next/server";
 import { query, type Options } from "@anthropic-ai/claude-agent-sdk";
 
 import type { ChatStreamEvent } from "@/lib/chat-stream";
+import { getServerConfig } from "@/lib/server-config";
 
 export const runtime = "nodejs";
-
-// 模型別名（'fable' | 'opus' | 'sonnet' | 'haiku'）或完整 model ID。
-const DEFAULT_MODEL = "haiku";
 
 const SYSTEM_PROMPT =
   "你是一位專業的財務助手，協助使用者理解財務報表與經營數據。" +
@@ -38,7 +36,7 @@ export async function POST(request: Request) {
 
   const options: Options = {
     abortController,
-    model: DEFAULT_MODEL,
+    model: getServerConfig().llmModel,
     maxTurns: 1,
     tools: [],
     systemPrompt: SYSTEM_PROMPT,

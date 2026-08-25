@@ -77,9 +77,65 @@ async function drain(body: ReadableStream<Uint8Array>) {
 
 afterEach(() => {
   queryMock.mockReset();
+  vi.unstubAllEnvs();
 });
 
+/** 取出本次呼叫 LLM 時傳入的 options。 */
+function capturedOptions() {
+  return queryMock.mock.calls[0][0].options as { model?: string };
+}
+
 describe("POST /api/chat", () => {
+  describe("LLM_MODEL 環境變數", () => {
+    it("未設定時使用預設模型 haiku", async () => {
+      vi.stubEnv("LLM_MODEL", undefined);
+      stallingQuery();
+      const { POST } = await import("./route");
+
+      const res = await POST(chatRequest());
+      const { reader } = await readUntil(res.body!, "delta");
+      await reader.cancel();
+
+      expect(capturedOptions().model).toBe("haiku");
+    });
+
+    it("已設定時改用指定的模型", async () => {
+      vi.stubEnv("LLM_MODEL", "sonnet");
+      stallingQuery();
+      const { POST } = await import("./route");
+
+      const res = await POST(chatRequest());
+      const { reader } = await readUntil(res.body!, "delta");
+      await reader.cancel();
+
+      expect(capturedOptions().model).toBe("sonnet");
+    });
+
+    it("設定值前後的空白會被去除", async () => {
+      vi.stubEnv("LLM_MODEL", "  claude-sonnet-5  ");
+      stallingQuery();
+      const { POST } = await import("./route");
+
+      const res = await POST(chatRequest());
+      const { reader } = await readUntil(res.body!, "delta");
+      await reader.cancel();
+
+      expect(capturedOptions().model).toBe("claude-sonnet-5");
+    });
+
+    it("設定值為純空白時視同未設定", async () => {
+      vi.stubEnv("LLM_MODEL", "   ");
+      stallingQuery();
+      const { POST } = await import("./route");
+
+      const res = await POST(chatRequest());
+      const { reader } = await readUntil(res.body!, "delta");
+      await reader.cancel();
+
+      expect(capturedOptions().model).toBe("haiku");
+    });
+  });
+
   it("LLM 正常回覆完畢時送出 done 並正常關閉串流", async () => {
     queryMock.mockImplementation(async function* () {
       yield { type: "system", subtype: "init", session_id: "s-1" };
