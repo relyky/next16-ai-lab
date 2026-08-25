@@ -5,7 +5,9 @@ import type { ChatStreamEvent } from "@/lib/chat-stream";
 
 const queryMock = vi.hoisted(() => vi.fn());
 
-vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
+// 只換掉 query；tool / createSdkMcpServer 需維持真實，charts server 才建得起來。
+vi.mock("@anthropic-ai/claude-agent-sdk", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@anthropic-ai/claude-agent-sdk")>()),
   query: queryMock,
 }));
 
@@ -136,20 +138,21 @@ describe("POST /api/chat", () => {
 
       const options = await captureOptions();
 
-      expect(options.mcpServers).toEqual({
-        qadb: { type: "http", url: "http://localhost:5152/graphql/mcp" },
+      expect(options.mcpServers?.qadb).toEqual({
+        type: "http",
+        url: "http://localhost:5152/graphql/mcp",
       });
       // 伺服器端沒有人能按同意，未放行的工具呼叫會被直接拒絕。
-      expect(options.allowedTools).toEqual(["mcp__qadb__*"]);
+      expect(options.allowedTools).toContain("mcp__qadb__*");
     });
 
-    it("未設定時不掛載任何 MCP server、也不放行任何工具", async () => {
+    it("未設定時不掛載 qadb、也不放行其工具", async () => {
       vi.stubEnv("QADB_MCP_URL", undefined);
 
       const options = await captureOptions();
 
-      expect(options.mcpServers).toBeUndefined();
-      expect(options.allowedTools).toBeUndefined();
+      expect(options.mcpServers).not.toHaveProperty("qadb");
+      expect(options.allowedTools).not.toContain("mcp__qadb__*");
     });
 
     it("設定值前後的空白會被去除", async () => {
@@ -167,45 +170,36 @@ describe("POST /api/chat", () => {
 
       const options = await captureOptions();
 
-      expect(options.mcpServers).toBeUndefined();
-      expect(options.allowedTools).toBeUndefined();
+      expect(options.mcpServers).not.toHaveProperty("qadb");
+      expect(options.allowedTools).not.toContain("mcp__qadb__*");
     });
   });
 
-  describe("CHARTS_MCP_URL 環境變數", () => {
-    it("已設定時以 HTTP transport 掛上 charts，並顯式放行其工具", async () => {
+  describe("charts MCP server（in-process）", () => {
+    it("一律掛載，不需環境變數，並顯式放行其工具", async () => {
       vi.stubEnv("QADB_MCP_URL", undefined);
-      vi.stubEnv("CHARTS_MCP_URL", "http://localhost:3000/api/mcp/charts");
 
       const options = await captureOptions();
 
-      expect(options.mcpServers).toEqual({
-        charts: { type: "http", url: "http://localhost:3000/api/mcp/charts" },
+      // in-process server 帶的是 live 的 McpServer 實例，不是 URL。
+      expect(options.mcpServers?.charts).toMatchObject({
+        type: "sdk",
+        name: "charts",
       });
       expect(options.allowedTools).toEqual(["mcp__charts__*"]);
     });
 
-    it("兩個 MCP server 都設定時同時掛載並各自放行", async () => {
+    it("qadb 也設定時兩者並存，並各自放行", async () => {
       vi.stubEnv("QADB_MCP_URL", "http://localhost:5152/graphql/mcp");
-      vi.stubEnv("CHARTS_MCP_URL", "http://localhost:3000/api/mcp/charts");
 
       const options = await captureOptions();
 
-      expect(options.mcpServers).toEqual({
-        qadb: { type: "http", url: "http://localhost:5152/graphql/mcp" },
-        charts: { type: "http", url: "http://localhost:3000/api/mcp/charts" },
+      expect(options.mcpServers?.qadb).toEqual({
+        type: "http",
+        url: "http://localhost:5152/graphql/mcp",
       });
+      expect(options.mcpServers?.charts).toMatchObject({ type: "sdk" });
       expect(options.allowedTools).toEqual(["mcp__qadb__*", "mcp__charts__*"]);
-    });
-
-    it("設定值為純空白時視同未設定", async () => {
-      vi.stubEnv("QADB_MCP_URL", undefined);
-      vi.stubEnv("CHARTS_MCP_URL", "   ");
-
-      const options = await captureOptions();
-
-      expect(options.mcpServers).toBeUndefined();
-      expect(options.allowedTools).toBeUndefined();
     });
   });
 

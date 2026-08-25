@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { query, type Options } from "@anthropic-ai/claude-agent-sdk";
 
+import { createChartsMcpServer } from "@/lib/charts/charts-mcp-server";
 import type { ChatStreamEvent } from "@/lib/chat-stream";
 import { getServerConfig } from "@/lib/server-config";
 
@@ -50,18 +51,17 @@ export async function POST(request: Request) {
 
   // 伺服器端沒有人能按同意，未顯式放行的工具呼叫會被直接拒絕。
   // glob 錨定在字面的 mcp__<server>__ 之後，代表放行該 server 的全部工具。
-  const mcpUrls: [name: string, url: string | undefined][] = [
-    ["qadb", config.qadbMcpUrl],
-    ["charts", config.chartsMcpUrl],
+  // qadb 是外部服務，靠環境變數給 URL；charts 是自家程式碼，直接掛實例。
+  options.mcpServers = {
+    ...(config.qadbMcpUrl
+      ? { qadb: { type: "http" as const, url: config.qadbMcpUrl } }
+      : {}),
+    charts: createChartsMcpServer(),
+  };
+  options.allowedTools = [
+    ...(config.qadbMcpUrl ? ["mcp__qadb__*"] : []),
+    "mcp__charts__*",
   ];
-  const mounted = mcpUrls.filter((entry): entry is [string, string] => Boolean(entry[1]));
-
-  if (mounted.length > 0) {
-    options.mcpServers = Object.fromEntries(
-      mounted.map(([name, url]) => [name, { type: "http", url } as const])
-    );
-    options.allowedTools = mounted.map(([name]) => `mcp__${name}__*`);
-  }
 
   if (sessionId) {
     options.resume = sessionId;

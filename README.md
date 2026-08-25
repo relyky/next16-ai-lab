@@ -30,7 +30,6 @@ This project uses [`next/font`](https://nextjs.org/docs/app/building-your-applic
 | `ANTHROPIC_API_KEY` | 是 | 無 | 呼叫 Claude API 用的金鑰。 |
 | `MODEL` | 否 | `haiku` | chat 使用的 LLM 模型，可填別名（`fable` / `opus` / `sonnet` / `haiku`）或完整 model ID（例如 `claude-sonnet-5`）。空字串或純空白視同未設定。 |
 | `QADB_MCP_URL` | 否 | 無 | qadb MCP server 的 HTTP endpoint，助手用它查詢實際營運資料。開發環境為 `http://localhost:5152/graphql/mcp`。留空即不掛載 qadb，助手仍能回答一般財務問題。 |
-| `CHARTS_MCP_URL` | 否 | 無 | charts MCP server 的 HTTP endpoint，助手用它把查詢結果轉成圖表定義。此 MCP server host 在本專案內的 Route Handler，開發環境為 `http://localhost:3000/api/mcp/charts`。留空即不掛載 charts。 |
 
 ## Learn More
 

@@ -10,8 +10,6 @@ export type ServerConfig = {
   model: string;
   /** qadb MCP server 的 HTTP endpoint；未設定即不掛載 qadb。 */
   qadbMcpUrl?: string;
-  /** charts MCP server 的 HTTP endpoint；未設定即不掛載 charts。 */
-  chartsMcpUrl?: string;
 };
 
 /** 未設定 `MODEL` 時採用的模型。 */
@@ -22,6 +20,5 @@ export function getServerConfig(): ServerConfig {
     // 空字串與純空白視同未設定。
     model: process.env.MODEL?.trim() || DEFAULT_MODEL,
     qadbMcpUrl: process.env.QADB_MCP_URL?.trim() || undefined,
-    chartsMcpUrl: process.env.CHARTS_MCP_URL?.trim() || undefined,
   };
 }
