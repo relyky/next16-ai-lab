@@ -2,11 +2,9 @@ import { NextResponse } from "next/server";
 import { query, type Options } from "@anthropic-ai/claude-agent-sdk";
 
 import type { ChatStreamEvent } from "@/lib/chat-stream";
+import { getServerConfig } from "@/lib/server-config";
 
 export const runtime = "nodejs";
-
-// 模型別名（'fable' | 'opus' | 'sonnet' | 'haiku'）或完整 model ID。
-const DEFAULT_MODEL = "haiku";
 
 const SYSTEM_PROMPT =
   "你是一位專業的財務助手，協助使用者理解財務報表與經營數據。" +
@@ -36,15 +34,26 @@ export async function POST(request: Request) {
   const abort = () => abortController.abort();
   request.signal.addEventListener("abort", abort);
 
+  const config = getServerConfig();
+
   const options: Options = {
     abortController,
-    model: DEFAULT_MODEL,
-    maxTurns: 1,
+    model: config.model,
+    // 一次工具往返最少兩個 turn（呼叫工具、依結果作答），
+    // 留餘裕讓助手能連續查幾次再收斂出答案。
+    maxTurns: 8,
     tools: [],
     systemPrompt: SYSTEM_PROMPT,
     // 取得 content_block_delta 逐字增量事件。
     includePartialMessages: true,
   };
+
+  if (config.qadbMcpUrl) {
+    options.mcpServers = { qadb: { type: "http", url: config.qadbMcpUrl } };
+    // 伺服器端沒有人能按同意，未顯式放行的工具呼叫會被直接拒絕。
+    // glob 錨定在字面的 mcp__<server>__ 之後，代表放行該 server 的全部工具。
+    options.allowedTools = ["mcp__qadb__*"];
+  }
 
   if (sessionId) {
     options.resume = sessionId;
