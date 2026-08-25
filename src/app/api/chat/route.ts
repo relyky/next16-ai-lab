@@ -48,11 +48,19 @@ export async function POST(request: Request) {
     includePartialMessages: true,
   };
 
-  if (config.qadbMcpUrl) {
-    options.mcpServers = { qadb: { type: "http", url: config.qadbMcpUrl } };
-    // 伺服器端沒有人能按同意，未顯式放行的工具呼叫會被直接拒絕。
-    // glob 錨定在字面的 mcp__<server>__ 之後，代表放行該 server 的全部工具。
-    options.allowedTools = ["mcp__qadb__*"];
+  // 伺服器端沒有人能按同意，未顯式放行的工具呼叫會被直接拒絕。
+  // glob 錨定在字面的 mcp__<server>__ 之後，代表放行該 server 的全部工具。
+  const mcpUrls: [name: string, url: string | undefined][] = [
+    ["qadb", config.qadbMcpUrl],
+    ["charts", config.chartsMcpUrl],
+  ];
+  const mounted = mcpUrls.filter((entry): entry is [string, string] => Boolean(entry[1]));
+
+  if (mounted.length > 0) {
+    options.mcpServers = Object.fromEntries(
+      mounted.map(([name, url]) => [name, { type: "http", url } as const])
+    );
+    options.allowedTools = mounted.map(([name]) => `mcp__${name}__*`);
   }
 
   if (sessionId) {

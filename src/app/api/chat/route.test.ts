@@ -170,7 +170,46 @@ describe("POST /api/chat", () => {
       expect(options.mcpServers).toBeUndefined();
       expect(options.allowedTools).toBeUndefined();
     });
+  });
 
+  describe("CHARTS_MCP_URL 環境變數", () => {
+    it("已設定時以 HTTP transport 掛上 charts，並顯式放行其工具", async () => {
+      vi.stubEnv("QADB_MCP_URL", undefined);
+      vi.stubEnv("CHARTS_MCP_URL", "http://localhost:3000/api/mcp/charts");
+
+      const options = await captureOptions();
+
+      expect(options.mcpServers).toEqual({
+        charts: { type: "http", url: "http://localhost:3000/api/mcp/charts" },
+      });
+      expect(options.allowedTools).toEqual(["mcp__charts__*"]);
+    });
+
+    it("兩個 MCP server 都設定時同時掛載並各自放行", async () => {
+      vi.stubEnv("QADB_MCP_URL", "http://localhost:5152/graphql/mcp");
+      vi.stubEnv("CHARTS_MCP_URL", "http://localhost:3000/api/mcp/charts");
+
+      const options = await captureOptions();
+
+      expect(options.mcpServers).toEqual({
+        qadb: { type: "http", url: "http://localhost:5152/graphql/mcp" },
+        charts: { type: "http", url: "http://localhost:3000/api/mcp/charts" },
+      });
+      expect(options.allowedTools).toEqual(["mcp__qadb__*", "mcp__charts__*"]);
+    });
+
+    it("設定值為純空白時視同未設定", async () => {
+      vi.stubEnv("QADB_MCP_URL", undefined);
+      vi.stubEnv("CHARTS_MCP_URL", "   ");
+
+      const options = await captureOptions();
+
+      expect(options.mcpServers).toBeUndefined();
+      expect(options.allowedTools).toBeUndefined();
+    });
+  });
+
+  describe("工具往返的 turn 上限", () => {
     it("turn 上限足以完成多次工具往返", async () => {
       // 一次工具往返最少兩個 turn；連續查幾次再收斂需要更多。
       // 斷言語意而非特定數字，日後調值不會誤紅。
