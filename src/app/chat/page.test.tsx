@@ -180,7 +180,8 @@ describe("Chat page", () => {
     expect(await screen.findByText(/本季營收/)).toBeInTheDocument();
     expect(screen.getByText(/已中斷/)).toBeInTheDocument();
     expect(screen.queryByText(/抱歉/)).not.toBeInTheDocument();
-    expect(fetchMock.mock.calls[0][1].signal).toBeInstanceOf(AbortSignal);
+    // fetch 確實被中止，瀏覽器不會再送來後續增量。
+    expect(fetchMock.mock.calls[0][1].signal.aborted).toBe(true);
   });
 
   it("中斷後可繼續提問，並帶上中斷前取得的 sessionId", async () => {
