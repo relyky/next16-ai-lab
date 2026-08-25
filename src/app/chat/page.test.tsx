@@ -90,6 +90,20 @@ describe("Chat page", () => {
     expect(await screen.findByText("毛利率為 38%。")).toBeInTheDocument();
   });
 
+  it("done 的 result 為空時保留已累積的增量文字", async () => {
+    stubFetch(async () =>
+      ndjsonResponse(
+        { type: "delta", text: "本季營收" },
+        { type: "done", result: "", sessionId: "s-1" }
+      )
+    );
+
+    render(<ChatPage />);
+    await ask("這季營收如何？");
+
+    expect(await screen.findByText("本季營收")).toBeInTheDocument();
+  });
+
   it("沒有 done 事件時保留已累積的增量文字", async () => {
     stubFetch(async () => ndjsonResponse({ type: "delta", text: "只有增量。" }));
 
