@@ -7,15 +7,15 @@
  */
 export type ServerConfig = {
   /** 模型別名（'fable' | 'opus' | 'sonnet' | 'haiku'）或完整 model ID。 */
-  llmModel: string;
+  model: string;
 };
 
 /** 未設定 `MODEL` 時採用的模型。 */
-const DEFAULT_LLM_MODEL = "haiku";
+const DEFAULT_MODEL = "haiku";
 
 export function getServerConfig(): ServerConfig {
   return {
     // 空字串與純空白視同未設定。
-    llmModel: process.env.MODEL?.trim() || DEFAULT_LLM_MODEL,
+    model: process.env.MODEL?.trim() || DEFAULT_MODEL,
   };
 }

@@ -36,7 +36,7 @@ export async function POST(request: Request) {
 
   const options: Options = {
     abortController,
-    model: getServerConfig().llmModel,
+    model: getServerConfig().model,
     maxTurns: 1,
     tools: [],
     systemPrompt: SYSTEM_PROMPT,
