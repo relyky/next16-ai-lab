@@ -6,10 +6,10 @@
  */
 import { z } from "zod";
 
-/** 圖表類型；決定前端要 render 哪一種 recharts 圖表。 */
-export const CHART_TYPES = ["line", "bar", "area"] as const;
+/** 笛卡兒圖類型（類別軸 × 多數列）；決定前端要 render 哪一種 recharts 圖表。 */
+export const CARTESIAN_CHART_TYPES = ["line", "bar", "area"] as const;
 
-export type ChartType = (typeof CHART_TYPES)[number];
+export type CartesianChartType = (typeof CARTESIAN_CHART_TYPES)[number];
 
 /** 上限用途為避免 LLM 產生過大的資料集拖垮訊息大小與圖表可讀性。 */
 const MAX_DATA_ROWS = 100;
@@ -52,14 +52,27 @@ export const chartInputSchema = z.object(chartInputShape);
 export type ChartInput = z.infer<typeof chartInputSchema>;
 
 /**
+ * 笛卡兒圖定義：類別軸 × 多數列，涵蓋 line / bar / area。
+ */
+export const cartesianChartDefinitionSchema = chartInputSchema.extend({
+  type: z.enum(CARTESIAN_CHART_TYPES),
+});
+
+export type CartesianChartDefinition = z.infer<typeof cartesianChartDefinitionSchema>;
+
+/**
  * 圖表定義 JSON：tool 的輸出，由前端 ChartCard 依 type 渲染。
+ *
+ * 以 `type` 為判別子的 discriminated union：各種圖表的資料形狀本質不同，
+ * 共用一份 schema 會對其中一方說謊。新增圖表類型的模式因此固定為
+ * 「一個 union 分支 + 一個渲染子元件」。詳見 docs/adr/0001。
  *
  * 同時作為 schema 匯出：tool 產出與前端解析走同一份定義，
  * 兩端才不會各自對「什麼是合法圖表」有不同認知。
  */
-export const chartDefinitionSchema = chartInputSchema.extend({
-  type: z.enum(CHART_TYPES),
-});
+export const chartDefinitionSchema = z.discriminatedUnion("type", [
+  cartesianChartDefinitionSchema,
+]);
 
 export type ChartDefinition = z.infer<typeof chartDefinitionSchema>;
 
@@ -79,7 +92,7 @@ function toolError(message: string): ChartToolResult {
  * 驗證失敗一律回傳 `isError: true` 與具體訊息，讓 LLM 能理解原因並自行重試，
  * 而不是靜默給出空圖表。
  */
-export function buildChartResult(type: ChartType, input: unknown): ChartToolResult {
+export function buildChartResult(type: CartesianChartType, input: unknown): ChartToolResult {
   const parsed = chartInputSchema.safeParse(input);
   if (!parsed.success) {
     const details = parsed.error.issues
@@ -108,6 +121,6 @@ export function buildChartResult(type: ChartType, input: unknown): ChartToolResu
     );
   }
 
-  const definition: ChartDefinition = { type, ...parsed.data };
+  const definition: CartesianChartDefinition = { type, ...parsed.data };
   return { content: [{ type: "text", text: JSON.stringify(definition) }] };
 }
