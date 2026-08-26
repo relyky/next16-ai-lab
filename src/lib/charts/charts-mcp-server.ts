@@ -11,9 +11,14 @@
  */
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 
-import { buildChartResult, chartInputShape } from "./chart-tool";
+import {
+  buildChartResult,
+  buildPieChartResult,
+  chartInputShape,
+  pieChartInputShape,
+} from "./chart-tool";
 
-/** 三個 tool 只差在回傳的 type 與描述，共用同一份 schema 與轉換邏輯。 */
+/** 三個笛卡兒圖 tool 只差在回傳的 type 與描述，共用同一份 schema 與轉換邏輯；餅圖兩者皆不共用。 */
 const SHARED_USAGE =
   "xKey 指定作為 X 軸的欄位（字串類別軸），series 指定要畫的數值欄位。";
 
@@ -38,8 +43,17 @@ export const areaChartTool = tool(
   async (args) => buildChartResult("area", args)
 );
 
+export const pieChartTool = tool(
+  "pie_chart",
+  "把查到的資料轉成餅圖定義，適合呈現各項目佔整體的組成比例。" +
+    "nameKey 指定作為扇形類別名稱的欄位，valueKey 指定作為扇形數值的欄位（須為非負數值）。" +
+    "餅圖只有單一數列，不接受 xKey 或 series。",
+  pieChartInputShape,
+  async (args) => buildPieChartResult(args)
+);
+
 /** 匯出成陣列，讓「有哪些 tool」在測試與註冊處是同一份來源。 */
-export const chartTools = [lineChartTool, barChartTool, areaChartTool];
+export const chartTools = [lineChartTool, barChartTool, areaChartTool, pieChartTool];
 
 /** 掛進 chat route 的 `mcpServers.charts`；工具全名為 `mcp__charts__*`。 */
 export function createChartsMcpServer() {

@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 
-import { buildChartResult } from "./chart-tool";
+import { buildChartResult, buildPieChartResult } from "./chart-tool";
 
 const validInput = {
   title: "月營收趨勢",
@@ -95,5 +95,109 @@ describe("buildChartResult", () => {
   it("series 為空陣列時回傳驗證錯誤", () => {
     const result = buildChartResult("line", { ...validInput, series: [] });
     expect(result.isError).toBe(true);
+  });
+});
+
+const validPieInput = {
+  title: "成本結構",
+  data: [
+    { item: "原料", amount: 120 },
+    { item: "人力", amount: 80 },
+    { item: "行銷", amount: 0 },
+  ],
+  nameKey: "item",
+  valueKey: "amount",
+};
+
+describe("buildPieChartResult", () => {
+  it("正常輸入回傳 type 為 pie 的圖表定義 JSON", () => {
+    const result = buildPieChartResult(validPieInput);
+
+    expect(result.isError).toBeFalsy();
+    expect(chartOf(result)).toEqual({ type: "pie", ...validPieInput });
+  });
+
+  it("title 未提供時不出現在圖表定義中", () => {
+    const noTitle = {
+      data: validPieInput.data,
+      nameKey: validPieInput.nameKey,
+      valueKey: validPieInput.valueKey,
+    };
+    expect(chartOf(buildPieChartResult(noTitle))).not.toHaveProperty("title");
+  });
+
+  it("nameKey 不存在於 data 時回傳 isError 並附上可用欄位", () => {
+    const result = buildPieChartResult({ ...validPieInput, nameKey: "category" });
+
+    expect(result.isError).toBe(true);
+    const message = errorTextOf(result);
+    expect(message).toContain("category");
+    expect(message).toContain("item");
+    expect(message).toContain("amount");
+  });
+
+  it("valueKey 不存在於 data 時回傳 isError 並附上可用欄位", () => {
+    const result = buildPieChartResult({ ...validPieInput, valueKey: "total" });
+
+    expect(result.isError).toBe(true);
+    const message = errorTextOf(result);
+    expect(message).toContain("total");
+    expect(message).toContain("item");
+  });
+
+  // 餅圖沒有數列概念：多傳笛卡兒圖的參數形狀應在驗證階段就被擋下。
+  it("誤傳笛卡兒圖的 xKey/series 參數時回傳驗證錯誤", () => {
+    const result = buildPieChartResult(validInput);
+    expect(result.isError).toBe(true);
+  });
+
+  it("data 為空陣列時回傳 isError", () => {
+    expect(buildPieChartResult({ ...validPieInput, data: [] }).isError).toBe(true);
+  });
+
+  it("data 超過 100 筆時回傳驗證錯誤", () => {
+    const data = Array.from({ length: 101 }, (_, i) => ({ item: `項目${i}`, amount: i }));
+    const result = buildPieChartResult({ ...validPieInput, data });
+
+    expect(result.isError).toBe(true);
+    expect(errorTextOf(result)).toContain("data");
+  });
+
+  // 扇形角度直接由值決定，非數值或負數會畫出無意義的圖。
+  // data 欄位的型別允許字串（類別名稱本來就是字串），故只能在執行期比對。
+  it("valueKey 的值為非數值時回傳 isError 並指出違規列", () => {
+    const data = [
+      { item: "原料", amount: 120 },
+      { item: "人力", amount: "八十" },
+    ];
+    const result = buildPieChartResult({ ...validPieInput, data });
+
+    expect(result.isError).toBe(true);
+    const message = errorTextOf(result);
+    expect(message).toContain("amount");
+    // 指出是第 2 列（1-based），LLM 才知道要改哪一筆。
+    expect(message).toContain("2");
+  });
+
+  it("valueKey 的值為負數時回傳 isError 並指出違規列", () => {
+    const data = [
+      { item: "原料", amount: 120 },
+      { item: "人力", amount: 80 },
+      { item: "行銷", amount: -40 },
+    ];
+    const result = buildPieChartResult({ ...validPieInput, data });
+
+    expect(result.isError).toBe(true);
+    const message = errorTextOf(result);
+    expect(message).toContain("amount");
+    expect(message).toContain("3");
+  });
+
+  it("零與正數皆為合法值", () => {
+    const data = [
+      { item: "原料", amount: 0 },
+      { item: "人力", amount: 80 },
+    ];
+    expect(buildPieChartResult({ ...validPieInput, data }).isError).toBeFalsy();
   });
 });

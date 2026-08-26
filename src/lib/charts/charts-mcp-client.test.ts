@@ -27,10 +27,10 @@ async function connect() {
  * 兩者互補——handler 對了但沒註冊成功，只有這支測得出來。
  */
 describe("charts MCP server 經真實 MCP client 呼叫", () => {
-  it("列出三個 tool", async () => {
+  it("列出四個 tool", async () => {
     const client = await connect();
     const names = (await client.listTools()).tools.map((t) => t.name).sort();
-    expect(names).toEqual(["area_chart", "bar_chart", "line_chart"]);
+    expect(names).toEqual(["area_chart", "bar_chart", "line_chart", "pie_chart"]);
   });
 
   it.each([["bar_chart", "bar"], ["area_chart", "area"]])(
