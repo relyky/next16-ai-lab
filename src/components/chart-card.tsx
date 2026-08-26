@@ -107,6 +107,36 @@ const CARTESIAN_KINDS = {
   }
 >;
 
+/**
+ * Y 軸刻度標籤：大數值改以 K / M / B 單位縮寫。
+ *
+ * recharts 預設為 Y 軸保留 60px，而千萬級的原始數字（如 `4000000`）寬約 65px，
+ * 會溢出 SVG 左緣被裁掉最高位——四個刻度全顯示成 `000000`，完全讀不出量級。
+ * 縮短標籤同時解決寬度與可讀性，比放寬 Y 軸（那會吃掉繪圖區）更划算。
+ *
+ * 千分位以下維持原樣：財務資料的小額數值不該被四捨五入成 `1K`。
+ * 取一位小數，讓 1.5M 與 2M 能區分；整數則不補 `.0`。
+ */
+export function formatAxisTick(value: number) {
+  if (!Number.isFinite(value)) return String(value);
+
+  const abs = Math.abs(value);
+  const units = [
+    { threshold: 1e9, suffix: "B" },
+    { threshold: 1e6, suffix: "M" },
+    { threshold: 1e3, suffix: "K" },
+  ];
+
+  for (const { threshold, suffix } of units) {
+    if (abs >= threshold) {
+      const scaled = value / threshold;
+      // 取一位小數後去掉尾隨的 .0，讓 2M 不顯示成 2.0M。
+      return `${parseFloat(scaled.toFixed(1))}${suffix}`;
+    }
+  }
+  return String(value);
+}
+
 /** 笛卡兒圖（line/bar/area）：共用同一組軸線／格線／tooltip 設定。 */
 function CartesianChartView({ chart }: { chart: CartesianChartDefinition }) {
   const { type, data, xKey, series } = chart;
@@ -125,7 +155,7 @@ function CartesianChartView({ chart }: { chart: CartesianChartDefinition }) {
     <Container data={data}>
       <CartesianGrid strokeDasharray="3 3" />
       <XAxis dataKey={xKey} />
-      <YAxis />
+      <YAxis tickFormatter={formatAxisTick} />
       <Tooltip />
       {/* 只有一組數列時圖例是冗贅資訊，標題已說明畫的是什麼。 */}
       {series.length > 1 ? <Legend /> : null}

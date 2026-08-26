@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 
-import { ChartCard, seriesColorAt } from "./chart-card";
+import { ChartCard, formatAxisTick, seriesColorAt } from "./chart-card";
 import type { ChartDefinition } from "@/lib/charts/chart-tool";
 
 const singleSeries: ChartDefinition = {
@@ -141,6 +141,33 @@ describe("ChartCard", () => {
     expect(container.querySelectorAll(seriesClass)).toHaveLength(2);
   });
 
+  // 縮寫實際套用到 Y 軸刻度上——真實資料常是千萬級，未縮寫會被裁切成 `000000`。
+  it("Y 軸刻度以縮寫單位渲染", () => {
+    const { container } = render(
+      <ChartCard
+        chart={{
+          ...singleSeries,
+          data: [
+            { month: "1月", revenue: 1_000_000 },
+            { month: "2月", revenue: 4_000_000 },
+          ],
+        }}
+      />
+    );
+
+    // 刻度文字為 <text text-anchor="end">，X 軸的則是 "middle"；以此區分兩軸。
+    const yTicks = Array.from(
+      container.querySelectorAll(".recharts-cartesian-axis-tick-value")
+    )
+      .filter((el) => el.getAttribute("text-anchor") === "end")
+      .map((el) => el.textContent);
+
+    expect(yTicks.length).toBeGreaterThan(0);
+    // 未套用縮寫時這裡會是 "1000000"、"4000000"。
+    expect(yTicks.some((t) => t?.endsWith("M"))).toBe(true);
+    expect(yTicks.every((t) => !/^[0-9]{7,}$/.test(t ?? ""))).toBe(true);
+  });
+
   // 區域圖預設堆疊，各層相鄰；過低的不透明度會讓區塊偏灰、層次不易分辨。
   // 此值取自 recharts 堆疊區域圖範例的預設。
   it("區域圖的填色不透明度為 0.6", () => {
@@ -151,6 +178,44 @@ describe("ChartCard", () => {
 
     expect(opacities.length).toBeGreaterThan(0);
     expect(opacities.every((o) => o === "0.6")).toBe(true);
+  });
+});
+
+// recharts 預設只為 Y 軸保留 60px，千萬級的原始數字會溢出 SVG 左緣被裁掉最高位，
+// 四個刻度全變成 `000000`。縮寫標籤同時解決寬度與可讀性。
+describe("formatAxisTick", () => {
+  it.each([
+    [0, "0"],
+    [1, "1"],
+    [999, "999"],
+    [1000, "1K"],
+    [1500, "1.5K"],
+    [1_000_000, "1M"],
+    [4_000_000, "4M"],
+    [12_255_223, "12.3M"],
+    [1_000_000_000, "1B"],
+  ])("%s → %s", (input, expected) => {
+    expect(formatAxisTick(input)).toBe(expected);
+  });
+
+  // 千分位以下維持原樣：財務資料的小額數值不該被四捨五入成 1K。
+  it("小於 1000 的值不縮寫", () => {
+    expect(formatAxisTick(120)).toBe("120");
+    expect(formatAxisTick(999.5)).toBe("999.5");
+  });
+
+  it("負數同樣縮寫並保留符號", () => {
+    expect(formatAxisTick(-4_000_000)).toBe("-4M");
+    expect(formatAxisTick(-1500)).toBe("-1.5K");
+  });
+
+  it("整數不補上尾隨的 .0", () => {
+    expect(formatAxisTick(2_000_000)).toBe("2M");
+  });
+
+  it("非有限值原樣回傳，不產生 NaNM 這種標籤", () => {
+    expect(formatAxisTick(NaN)).toBe("NaN");
+    expect(formatAxisTick(Infinity)).toBe("Infinity");
   });
 });
 
