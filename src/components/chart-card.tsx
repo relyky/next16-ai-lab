@@ -14,8 +14,11 @@ import {
   BarChart,
   CartesianGrid,
   Legend,
+  Cell,
   Line,
   LineChart,
+  Pie,
+  PieChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -26,6 +29,7 @@ import type {
   CartesianChartDefinition,
   CartesianChartType,
   ChartDefinition,
+  PieChartDefinition,
 } from "@/lib/charts/chart-tool";
 
 /** 未指定顏色時的預設配色，沿用專案既有的 shadcn 圖表 CSS 變數。 */
@@ -111,6 +115,35 @@ function CartesianChart({ chart }: { chart: CartesianChartDefinition }) {
   );
 }
 
+/**
+ * 餅圖（單一數列 × 多類別）：無軸線與格線，扇形角度即為佔比。
+ *
+ * 配色一律由前端依扇形序號循環套用預設配色——資料筆數由 LLM 決定，
+ * 要求它逐扇形配色既囉嗦又易出錯。
+ */
+function PieChartBody({ chart }: { chart: PieChartDefinition }) {
+  const { data, nameKey, valueKey } = chart;
+
+  return (
+    <PieChart>
+      <Tooltip />
+      <Legend />
+      <Pie
+        data={data}
+        nameKey={nameKey}
+        dataKey={valueKey}
+        outerRadius={80}
+        label
+        isAnimationActive={false}
+      >
+        {data.map((row, index) => (
+          <Cell key={`${row[nameKey]}-${index}`} fill={fallbackColorAt(index)} />
+        ))}
+      </Pie>
+    </PieChart>
+  );
+}
+
 /** 依 `type` 分派到各圖表子元件；此處同時完成 union 的型別收窄。 */
 function ChartBody({ chart }: { chart: ChartDefinition }) {
   switch (chart.type) {
@@ -118,6 +151,8 @@ function ChartBody({ chart }: { chart: ChartDefinition }) {
     case "bar":
     case "area":
       return <CartesianChart chart={chart} />;
+    case "pie":
+      return <PieChartBody chart={chart} />;
   }
 }
 

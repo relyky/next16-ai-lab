@@ -7,6 +7,7 @@ import {
   chartTools,
   createChartsMcpServer,
   lineChartTool,
+  pieChartTool,
 } from "./charts-mcp-server";
 
 const validArgs = {
@@ -47,8 +48,29 @@ describe("charts MCP server", () => {
     expect(chartTool.description).toBeTruthy();
   });
 
-  it("三個 tool 全數註冊到 server", () => {
-    expect(chartTools).toEqual([lineChartTool, barChartTool, areaChartTool]);
+  it("四個 tool 全數註冊到 server", () => {
+    expect(chartTools).toEqual([lineChartTool, barChartTool, areaChartTool, pieChartTool]);
+  });
+
+  it("註冊 pie 的 tool 並附上描述", () => {
+    expect(pieChartTool.name).toBe("pie_chart");
+    expect(pieChartTool.description).toBeTruthy();
+  });
+
+  it("呼叫 pie_chart tool 回傳 type 為 pie 的圖表定義 JSON", async () => {
+    const pieArgs = {
+      title: "成本結構",
+      data: [
+        { item: "原料", amount: 120 },
+        { item: "人力", amount: 80 },
+      ],
+      nameKey: "item",
+      valueKey: "amount",
+    };
+    const result = await pieChartTool.handler(pieArgs, {});
+
+    expect(result.isError).toBeFalsy();
+    expect(JSON.parse(textOf(result))).toEqual({ type: "pie", ...pieArgs });
   });
 
   it.each(CHART_TOOLS)(

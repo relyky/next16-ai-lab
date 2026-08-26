@@ -32,13 +32,16 @@ const seriesSchema = z.object({
  *
  * 以 raw shape 形式匯出，讓 `registerTool` 能直接取用並產生 JSON Schema。
  */
+/** 各圖表共用的資料欄位；上限一致，LLM 對限制才有一致認知。 */
+const dataSchema = z
+  .array(z.record(z.string(), z.union([z.string(), z.number()])))
+  .min(1)
+  .max(MAX_DATA_ROWS)
+  .describe(`圖表資料，物件陣列，1~${MAX_DATA_ROWS} 筆`);
+
 export const chartInputShape = {
   title: z.string().min(1).optional().describe("圖表標題"),
-  data: z
-    .array(z.record(z.string(), z.union([z.string(), z.number()])))
-    .min(1)
-    .max(MAX_DATA_ROWS)
-    .describe(`圖表資料，物件陣列，1~${MAX_DATA_ROWS} 筆`),
+  data: dataSchema,
   xKey: z.string().min(1).describe("作為 X 軸（字串類別軸）的欄位名稱，須存在於 data 中"),
   series: z
     .array(seriesSchema)
@@ -50,6 +53,30 @@ export const chartInputShape = {
 export const chartInputSchema = z.object(chartInputShape);
 
 export type ChartInput = z.infer<typeof chartInputSchema>;
+
+/**
+ * 餅圖的輸入欄位：單一數列 × 多類別，因此沒有數列（series）概念。
+ *
+ * `nameKey` / `valueKey` 貼齊 recharts `Pie` 的 prop 命名，讀前端程式時零翻譯；
+ * `valueKey` 較 recharts 的 `dataKey` 更明確地說明該欄位必須是數值。
+ */
+export const pieChartInputShape = {
+  title: z.string().min(1).optional().describe("圖表標題"),
+  data: dataSchema,
+  nameKey: z.string().min(1).describe("作為扇形類別名稱的欄位，須存在於 data 中"),
+  valueKey: z
+    .string()
+    .min(1)
+    .describe("作為扇形數值的欄位，須存在於 data 中且各列皆為非負數值"),
+};
+
+/**
+ * strict：誤把笛卡兒圖的 xKey / series 傳進來時直接被驗證擋下，
+ * 而不是靜默忽略後畫出一張參數對不上的圖。
+ */
+export const pieChartInputSchema = z.strictObject(pieChartInputShape);
+
+export type PieChartInput = z.infer<typeof pieChartInputSchema>;
 
 /**
  * 笛卡兒圖定義：類別軸 × 多數列，涵蓋 line / bar / area。
@@ -70,8 +97,16 @@ export type CartesianChartDefinition = z.infer<typeof cartesianChartDefinitionSc
  * 同時作為 schema 匯出：tool 產出與前端解析走同一份定義，
  * 兩端才不會各自對「什麼是合法圖表」有不同認知。
  */
+export const pieChartDefinitionSchema = z.object({
+  ...pieChartInputShape,
+  type: z.literal("pie"),
+});
+
+export type PieChartDefinition = z.infer<typeof pieChartDefinitionSchema>;
+
 export const chartDefinitionSchema = z.discriminatedUnion("type", [
   cartesianChartDefinitionSchema,
+  pieChartDefinitionSchema,
 ]);
 
 export type ChartDefinition = z.infer<typeof chartDefinitionSchema>;
@@ -87,31 +122,50 @@ function toolError(message: string): ChartToolResult {
 }
 
 /**
+ * schema 無從得知 data 實際有哪些欄位，指定的 key 是否對得上只能在執行期比對。
+ * 對得上時回傳 null，對不上時回傳附有可用欄位清單的錯誤，讓 LLM 能自行修正重試。
+ */
+function assertKeyExists(
+  label: string,
+  key: string,
+  availableKeys: string[]
+): ChartToolResult | null {
+  if (availableKeys.includes(key)) return null;
+  return toolError(
+    `${label} "${key}" 不存在於 data 中；可用欄位為：${availableKeys.join("、")}`
+  );
+}
+
+function parseOrError<T>(
+  schema: z.ZodType<T>,
+  input: unknown
+): { ok: true; value: T } | { ok: false; error: ChartToolResult } {
+  const parsed = schema.safeParse(input);
+  if (parsed.success) return { ok: true, value: parsed.data };
+
+  const details = parsed.error.issues
+    .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)
+    .join("；");
+  return { ok: false, error: toolError(`圖表參數驗證失敗 → ${details}`) };
+}
+
+/**
  * 驗證輸入並轉成圖表定義 JSON。
  *
  * 驗證失敗一律回傳 `isError: true` 與具體訊息，讓 LLM 能理解原因並自行重試，
  * 而不是靜默給出空圖表。
  */
 export function buildChartResult(type: CartesianChartType, input: unknown): ChartToolResult {
-  const parsed = chartInputSchema.safeParse(input);
-  if (!parsed.success) {
-    const details = parsed.error.issues
-      .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)
-      .join("；");
-    return toolError(`圖表參數驗證失敗 → ${details}`);
-  }
+  const parsed = parseOrError(chartInputSchema, input);
+  if (!parsed.ok) return parsed.error;
 
-  const { data, xKey } = parsed.data;
+  const { data, xKey } = parsed.value;
 
-  // schema 無從得知 data 實際有哪些欄位，xKey 是否對得上只能在執行期比對。
   const availableKeys = Object.keys(data[0]);
-  if (!availableKeys.includes(xKey)) {
-    return toolError(
-      `xKey "${xKey}" 不存在於 data 中；可用欄位為：${availableKeys.join("、")}`
-    );
-  }
+  const missingXKey = assertKeyExists("xKey", xKey, availableKeys);
+  if (missingXKey) return missingXKey;
 
-  const missingSeries = parsed.data.series
+  const missingSeries = parsed.value.series
     .map((s) => s.key)
     .filter((key) => !availableKeys.includes(key));
   if (missingSeries.length > 0) {
@@ -121,6 +175,29 @@ export function buildChartResult(type: CartesianChartType, input: unknown): Char
     );
   }
 
-  const definition: CartesianChartDefinition = { type, ...parsed.data };
+  const definition: CartesianChartDefinition = { type, ...parsed.value };
+  return { content: [{ type: "text", text: JSON.stringify(definition) }] };
+}
+
+/**
+ * 驗證餅圖輸入並轉成圖表定義 JSON。
+ *
+ * 與笛卡兒圖分開而非共用同一個簽章：兩者的輸入型別已不同，
+ * 硬塞同一個函式只是把 union 的分辨工作從型別系統推回函式內部。
+ */
+export function buildPieChartResult(input: unknown): ChartToolResult {
+  const parsed = parseOrError(pieChartInputSchema, input);
+  if (!parsed.ok) return parsed.error;
+
+  const { data, nameKey, valueKey } = parsed.value;
+  const availableKeys = Object.keys(data[0]);
+
+  const missingNameKey = assertKeyExists("nameKey", nameKey, availableKeys);
+  if (missingNameKey) return missingNameKey;
+
+  const missingValueKey = assertKeyExists("valueKey", valueKey, availableKeys);
+  if (missingValueKey) return missingValueKey;
+
+  const definition: PieChartDefinition = { type: "pie", ...parsed.value };
   return { content: [{ type: "text", text: JSON.stringify(definition) }] };
 }

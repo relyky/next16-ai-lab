@@ -164,3 +164,68 @@ describe("seriesColorAt", () => {
     expect(seriesColorAt({ key: "s6" }, 6)).toBe("var(--chart-2)");
   });
 });
+
+const pieChart: ChartDefinition = {
+  type: "pie",
+  title: "成本結構",
+  data: [
+    { item: "原料", amount: 120 },
+    { item: "人力", amount: 80 },
+    { item: "行銷", amount: 40 },
+  ],
+  nameKey: "item",
+  valueKey: "amount",
+};
+
+describe("ChartCard 餅圖", () => {
+  it("依資料筆數渲染對應數量的扇形", () => {
+    const { container } = render(<ChartCard chart={pieChart} />);
+    expect(container.querySelectorAll(".recharts-pie-sector")).toHaveLength(3);
+  });
+
+  it("逐扇形循環套用預設配色", () => {
+    const { container } = render(<ChartCard chart={pieChart} />);
+    const fills = Array.from(
+      container.querySelectorAll(".recharts-pie-sector path.recharts-sector")
+    ).map((el) => el.getAttribute("fill"));
+
+    expect(fills).toEqual(["var(--chart-1)", "var(--chart-2)", "var(--chart-3)"]);
+  });
+
+  // 圖例內容在 jsdom 下需等 recharts 的 payload 就緒，此處只驗容器存在；
+  // 「類別名稱看得見」改由扇形標籤驗證——它是同一份 nameKey 的另一個呈現點。
+  it("渲染圖例容器", () => {
+    const { container } = render(<ChartCard chart={pieChart} />);
+    expect(container.querySelector(".recharts-legend-wrapper")).not.toBeNull();
+  });
+
+  // 標籤與圖例的文字節點在 jsdom 下不生成；扇形的 name 屬性是 nameKey
+  // 唯一驗得到的落點，tooltip 與圖例的類別名稱同樣取自它。
+  it("各扇形帶上對應的類別名稱", () => {
+    const { container } = render(<ChartCard chart={pieChart} />);
+    const names = Array.from(
+      container.querySelectorAll(".recharts-pie-sector path.recharts-sector")
+    ).map((el) => el.getAttribute("name"));
+
+    expect(names).toEqual(["原料", "人力", "行銷"]);
+  });
+
+  it("渲染 tooltip 容器", () => {
+    const { container } = render(<ChartCard chart={pieChart} />);
+    expect(container.querySelector(".recharts-tooltip-wrapper")).not.toBeNull();
+  });
+
+  // 餅圖的扇形角度即為佔比，軸線與格線在此沒有意義。
+  it("不渲染軸線與格線", () => {
+    const { container } = render(<ChartCard chart={pieChart} />);
+
+    expect(container.querySelector(".recharts-xAxis")).toBeNull();
+    expect(container.querySelector(".recharts-yAxis")).toBeNull();
+    expect(container.querySelector(".recharts-cartesian-grid")).toBeNull();
+  });
+
+  it("顯示圖表標題", () => {
+    render(<ChartCard chart={pieChart} />);
+    expect(screen.getByText("成本結構")).toBeInTheDocument();
+  });
+});

@@ -27,10 +27,24 @@ async function connect() {
  * 兩者互補——handler 對了但沒註冊成功，只有這支測得出來。
  */
 describe("charts MCP server 經真實 MCP client 呼叫", () => {
-  it("列出三個 tool", async () => {
+  it("列出四個 tool", async () => {
     const client = await connect();
     const names = (await client.listTools()).tools.map((t) => t.name).sort();
-    expect(names).toEqual(["area_chart", "bar_chart", "line_chart"]);
+    expect(names).toEqual(["area_chart", "bar_chart", "line_chart", "pie_chart"]);
+  });
+
+  it("pie_chart 回傳 type 為 pie 的圖表定義 JSON", async () => {
+    const client = await connect();
+    const pieArgs = {
+      data: [{ item: "原料", amount: 120 }, { item: "人力", amount: 80 }],
+      nameKey: "item",
+      valueKey: "amount",
+    };
+    const r = (await client.callTool({ name: "pie_chart", arguments: pieArgs })) as {
+      isError?: boolean; content: { text: string }[];
+    };
+    expect(r.isError).toBeFalsy();
+    expect(JSON.parse(r.content[0].text)).toEqual({ type: "pie", ...pieArgs });
   });
 
   it.each([["bar_chart", "bar"], ["area_chart", "area"]])(
