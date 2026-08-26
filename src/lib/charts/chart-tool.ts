@@ -198,6 +198,24 @@ export function buildPieChartResult(input: unknown): ChartToolResult {
   const missingValueKey = assertKeyExists("valueKey", valueKey, availableKeys);
   if (missingValueKey) return missingValueKey;
 
+  // 扇形角度直接由值決定，非數值或負數會畫出無意義的圖。
+  // data 欄位的型別允許字串（類別名稱本來就是字串），此約束只能在執行期比對。
+  for (const [index, row] of data.entries()) {
+    const value = row[valueKey];
+    if (typeof value !== "number" || Number.isNaN(value)) {
+      return toolError(
+        `data 第 ${index + 1} 列的 ${valueKey} 值 ${JSON.stringify(value)} 不是數值；` +
+          "餅圖的數值欄位每一列都必須是非負數值"
+      );
+    }
+    if (value < 0) {
+      return toolError(
+        `data 第 ${index + 1} 列的 ${valueKey} 值 ${value} 為負數；` +
+          "餅圖的數值欄位每一列都必須是非負數值"
+      );
+    }
+  }
+
   const definition: PieChartDefinition = { type: "pie", ...parsed.value };
   return { content: [{ type: "text", text: JSON.stringify(definition) }] };
 }

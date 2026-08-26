@@ -162,4 +162,42 @@ describe("buildPieChartResult", () => {
     expect(result.isError).toBe(true);
     expect(errorTextOf(result)).toContain("data");
   });
+
+  // 扇形角度直接由值決定，非數值或負數會畫出無意義的圖。
+  // data 欄位的型別允許字串（類別名稱本來就是字串），故只能在執行期比對。
+  it("valueKey 的值為非數值時回傳 isError 並指出違規列", () => {
+    const data = [
+      { item: "原料", amount: 120 },
+      { item: "人力", amount: "八十" },
+    ];
+    const result = buildPieChartResult({ ...validPieInput, data });
+
+    expect(result.isError).toBe(true);
+    const message = errorTextOf(result);
+    expect(message).toContain("amount");
+    // 指出是第 2 列（1-based），LLM 才知道要改哪一筆。
+    expect(message).toContain("2");
+  });
+
+  it("valueKey 的值為負數時回傳 isError 並指出違規列", () => {
+    const data = [
+      { item: "原料", amount: 120 },
+      { item: "人力", amount: 80 },
+      { item: "行銷", amount: -40 },
+    ];
+    const result = buildPieChartResult({ ...validPieInput, data });
+
+    expect(result.isError).toBe(true);
+    const message = errorTextOf(result);
+    expect(message).toContain("amount");
+    expect(message).toContain("3");
+  });
+
+  it("零與正數皆為合法值", () => {
+    const data = [
+      { item: "原料", amount: 0 },
+      { item: "人力", amount: 80 },
+    ];
+    expect(buildPieChartResult({ ...validPieInput, data }).isError).toBeFalsy();
+  });
 });
