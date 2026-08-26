@@ -33,7 +33,38 @@ describe("charts MCP server 經真實 MCP client 呼叫", () => {
     expect(names).toEqual(["area_chart", "bar_chart", "line_chart", "pie_chart"]);
   });
 
-  it.each([["bar_chart", "bar"], ["area_chart", "area"]])(
+  /**
+   * stacked 是否出現在 tool 簽章上，只有走完整協定拿到 inputSchema 才驗得到。
+   * 這是「line_chart 不接受 stacked」這條規則對 LLM 唯一可見的落點。
+   */
+  it("line_chart 的 inputSchema 不含 stacked，bar/area 含之且型別為布林", async () => {
+    const client = await connect();
+    const byName = new Map(
+      (await client.listTools()).tools.map((t) => [t.name, t.inputSchema])
+    );
+
+    expect(byName.get("line_chart")?.properties).not.toHaveProperty("stacked");
+    for (const name of ["bar_chart", "area_chart"]) {
+      const properties = byName.get(name)?.properties as
+        | Record<string, { type?: string }>
+        | undefined;
+      expect(properties?.stacked?.type).toBe("boolean");
+    }
+  });
+
+  // stacked 未在 schema 層設預設值，JSON Schema 因此不帶 default，
+  // 各自的預設只能寫在描述裡；缺了 LLM 就無從得知要顯式傳值。
+  it.each([
+    ["bar_chart", "並排"],
+    ["area_chart", "堆疊"],
+  ])("%s 的描述明文寫出 stacked 的預設", async (name, expected) => {
+    const client = await connect();
+    const found = (await client.listTools()).tools.find((t) => t.name === name);
+
+    expect(found?.description).toContain("預設" + expected);
+  });
+
+  it.each([["bar_chart", "bar"], ["area_chart", "area"], ["line_chart", "line"]])(
     "%s 回傳正確 type 的圖表定義 JSON",
     async (name, type) => {
       const client = await connect();
@@ -42,6 +73,26 @@ describe("charts MCP server 經真實 MCP client 呼叫", () => {
       };
       expect(r.isError).toBeFalsy();
       expect(JSON.parse(r.content[0].text)).toEqual({ type, ...args });
+    }
+  );
+
+  /**
+   * MCP SDK 在註冊層以 `z.object(shape)`（非 strict）先 parse 一次，
+   * 未知欄位在抵達我們的 handler 前就已被剝除，因此協定層看到的是
+   * 「靜默忽略」而非錯誤——這是 SDK 的行為，不是我們能在 schema 上改變的。
+   *
+   * 我們的 shape 仍維持 strict：那是這些 tool 的誠實契約，
+   * 也擋得住直接呼叫轉換函式的路徑（見 chart-tool.test.ts）。
+   */
+  it.each(["line_chart", "bar_chart", "area_chart"])(
+    "%s 的未知欄位由 SDK 於註冊層剝除，不進入圖表定義",
+    async (name) => {
+      const client = await connect();
+      const r = (await client.callTool({
+        name, arguments: { ...args, bogus: true },
+      })) as { isError?: boolean; content: { text: string }[] };
+      expect(r.isError).toBeFalsy();
+      expect(JSON.parse(r.content[0].text)).not.toHaveProperty("bogus");
     }
   );
 

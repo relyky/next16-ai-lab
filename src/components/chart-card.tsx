@@ -54,31 +54,47 @@ export function seriesColorAt(series: ChartSeries, index: number) {
 }
 
 /**
- * 各笛卡兒圖類型對應的 recharts 容器、數列元件，與該類型專屬的數列 props。
+ * recharts 沒有 `stacked` 這個 prop——堆疊是「相同 stackId 的數列疊在一起」。
+ * `stacked` 是我們自己的抽象，為真時給所有數列同一個常數 stackId。
+ */
+const STACK_ID = "stack";
+
+/**
+ * 各笛卡兒圖類型對應的 recharts 容器、數列元件、該類型專屬的數列 props，
+ * 以及未指定 `stacked` 時的預設值。
  *
  * 用 Record 而非 if/else 串接，是為了讓「新增一種笛卡兒圖」只需多一列設定。
  * `seriesProps` 各自帶自己需要的東西：折線／區域用 `type` 決定曲線形狀（Bar 沒有這個 prop），
  * 顏色也依「線」或「面」套到不同屬性上。
+ *
+ * `defaultStacked` 是「哪種圖預設堆疊」這條規則的唯一落點：長條圖主要用途是比較
+ * 類別間差異故預設並排，區域圖主要用途是呈現累積變化故預設堆疊。折線圖不接受
+ * `stacked`，其值恆為 false。
  */
 const CARTESIAN_KINDS = {
   line: {
     Container: LineChart,
     Series: Line,
+    defaultStacked: false,
     seriesProps: (color: string) => ({ type: "monotone" as const, stroke: color }),
   },
   bar: {
     Container: BarChart,
     Series: Bar,
+    defaultStacked: false,
     seriesProps: (color: string) => ({ fill: color }),
   },
   area: {
     Container: AreaChart,
     Series: Area,
+    defaultStacked: true,
+    // 不透明度取 recharts 堆疊區域圖範例的預設值：堆疊時各層相鄰，
+    // 過低的不透明度會讓區塊偏灰、層次不易分辨。
     seriesProps: (color: string) => ({
       type: "monotone" as const,
       stroke: color,
       fill: color,
-      fillOpacity: 0.25,
+      fillOpacity: 0.6,
     }),
   },
 } satisfies Record<
@@ -86,6 +102,7 @@ const CARTESIAN_KINDS = {
   {
     Container: React.ElementType;
     Series: React.ElementType;
+    defaultStacked: boolean;
     seriesProps: (color: string) => Record<string, unknown>;
   }
 >;
@@ -93,7 +110,16 @@ const CARTESIAN_KINDS = {
 /** 笛卡兒圖（line/bar/area）：共用同一組軸線／格線／tooltip 設定。 */
 function CartesianChartView({ chart }: { chart: CartesianChartDefinition }) {
   const { type, data, xKey, series } = chart;
-  const { Container, Series, seriesProps } = CARTESIAN_KINDS[type];
+  const { Container, Series, defaultStacked, seriesProps } = CARTESIAN_KINDS[type];
+
+  // 定義 JSON 是稀疏的：LLM 沒傳 stacked 時回退到該圖表類型的預設。
+  // stackId 的注入邏輯三種圖完全相同，不屬於各類型的差異，故不進對照表。
+  //
+  // 用 `in` 而非依 type 收窄，是因為 line 分支根本沒有 stacked 這個 key——
+  // 那正是「折線圖不接受 stacked」在型別上的表達，不該為了此處好寫而讓三個
+  // 分支都帶上這個欄位（那會讓 line_chart 的 tool 簽章對 LLM 說謊）。
+  const stacked = ("stacked" in chart ? chart.stacked : undefined) ?? defaultStacked;
+  const stackProps = stacked ? { stackId: STACK_ID } : {};
 
   return (
     <Container data={data}>
@@ -108,6 +134,7 @@ function CartesianChartView({ chart }: { chart: CartesianChartDefinition }) {
           key={s.key}
           dataKey={s.key}
           name={s.label ?? s.key}
+          {...stackProps}
           {...seriesProps(seriesColorAt(s, index))}
         />
       ))}

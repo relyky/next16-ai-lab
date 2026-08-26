@@ -1,15 +1,17 @@
 /**
- * charts MCP tools 的共用輸入 schema 與轉換邏輯。
+ * charts MCP tools 的輸入 schema 與轉換邏輯。
  *
- * 三個圖表 tool（line/bar/area）差異只在回傳的 `type`，
- * 因此驗證與轉換集中在此，各 tool 只負責帶入自己的 type。
+ * 每個 tool 各有一份輸入 shape 與一個具名轉換函式，
+ * 共通的欄位定義與檢查邏輯則抽為此檔內部的常數與 helper。
  */
 import { z } from "zod";
 
-/** 笛卡兒圖類型（類別軸 × 多數列）；決定前端要 render 哪一種 recharts 圖表。 */
-export const CARTESIAN_CHART_TYPES = ["line", "bar", "area"] as const;
-
-export type CartesianChartType = (typeof CARTESIAN_CHART_TYPES)[number];
+/**
+ * 笛卡兒圖類型（類別軸 × 多數列）；決定前端要 render 哪一種 recharts 圖表。
+ *
+ * 各圖表定義的 `type` 由自己的 `z.literal` 決定，此別名只供前端的類型對照表使用。
+ */
+export type CartesianChartType = "line" | "bar" | "area";
 
 /** 上限用途為避免 LLM 產生過大的資料集拖垮訊息大小與圖表可讀性。 */
 const MAX_DATA_ROWS = 100;
@@ -27,11 +29,6 @@ const seriesSchema = z.object({
     .describe("數列顏色，hex 格式；未提供時由前端套用預設配色"),
 });
 
-/**
- * 三個 chart tool 共用的輸入欄位。
- *
- * 以 raw shape 形式匯出，讓 `registerTool` 能直接取用並產生 JSON Schema。
- */
 /** 各圖表共用的資料欄位；上限一致，LLM 對限制才有一致認知。 */
 const dataSchema = z
   .array(z.record(z.string(), z.union([z.string(), z.number()])))
@@ -39,7 +36,13 @@ const dataSchema = z
   .max(MAX_DATA_ROWS)
   .describe(`圖表資料，物件陣列，1~${MAX_DATA_ROWS} 筆`);
 
-export const chartInputShape = {
+/**
+ * 三個笛卡兒圖共有的輸入欄位。
+ *
+ * 三個 tool 各自擁有獨立的輸入 shape（才能各自增減欄位、各自拒絕未知欄位），
+ * 但共通欄位的定義只寫在這一處，由各 shape 展開後再加上自己的差異。
+ */
+const cartesianCommonShape = {
   title: z.string().min(1).optional().describe("圖表標題"),
   data: dataSchema,
   xKey: z.string().min(1).describe("作為 X 軸（字串類別軸）的欄位名稱，須存在於 data 中"),
@@ -50,9 +53,39 @@ export const chartInputShape = {
     .describe(`要繪製的數列，1~${MAX_SERIES} 組`),
 };
 
-export const chartInputSchema = z.object(chartInputShape);
+/**
+ * 各笛卡兒圖 tool 的輸入欄位；以 raw shape 形式匯出供 `tool()` 產生 JSON Schema。
+ *
+ * 目前三份內容相同，但刻意不合為一份：後續各圖要有自己的欄位（如僅 bar/area 的
+ * `stacked`），共用一份會讓某個 tool 的簽章對呼叫端說謊。
+ */
+export const lineChartInputShape = { ...cartesianCommonShape };
 
-export type ChartInput = z.infer<typeof chartInputSchema>;
+/**
+ * bar/area 專有的堆疊開關。
+ *
+ * 選填且不設 schema 層預設值：圖表定義 JSON 保持稀疏，LLM 沒傳就沒有這個欄位，
+ * 「哪種圖預設堆疊」的回退規則統一由前端的類型對照表決定。也因為選填欄位不會在
+ * JSON Schema 產生 `default`，各自的預設值必須寫進 tool 描述，LLM 才知道要顯式傳值。
+ *
+ * 折線圖不提供：堆疊折線容易被讀者誤讀成獨立值而非累加值。
+ */
+const stackedField = z
+  .boolean()
+  .optional()
+  .describe("是否把各數列堆疊起來；未提供時採該圖表類型的預設");
+
+export const barChartInputShape = { ...cartesianCommonShape, stacked: stackedField };
+
+export const areaChartInputShape = { ...cartesianCommonShape, stacked: stackedField };
+
+/**
+ * strict：傳入未知欄位時直接被驗證擋下，而不是靜默忽略後畫出一張參數對不上的圖。
+ * 這也是各圖能明確拒絕「不屬於自己的欄位」的前提。比照餅圖既有作法。
+ */
+export const lineChartInputSchema = z.strictObject(lineChartInputShape);
+export const barChartInputSchema = z.strictObject(barChartInputShape);
+export const areaChartInputSchema = z.strictObject(areaChartInputShape);
 
 /**
  * 餅圖的輸入欄位：單一數列 × 多類別，因此沒有數列（series）概念。
@@ -79,13 +112,31 @@ export const pieChartInputSchema = z.strictObject(pieChartInputShape);
 export type PieChartInput = z.infer<typeof pieChartInputSchema>;
 
 /**
- * 笛卡兒圖定義：類別軸 × 多數列，涵蓋 line / bar / area。
+ * 各笛卡兒圖的定義：類別軸 × 多數列，以 `type` 區分。
+ *
+ * 同輸入端採 strict：tool 產出與前端解析走同一份定義，
+ * 兩端對「什麼是合法圖表」的寬嚴也必須一致。
  */
-export const cartesianChartDefinitionSchema = chartInputSchema.extend({
-  type: z.enum(CARTESIAN_CHART_TYPES),
+export const lineChartDefinitionSchema = z.strictObject({
+  ...lineChartInputShape,
+  type: z.literal("line"),
 });
 
-export type CartesianChartDefinition = z.infer<typeof cartesianChartDefinitionSchema>;
+export const barChartDefinitionSchema = z.strictObject({
+  ...barChartInputShape,
+  type: z.literal("bar"),
+});
+
+export const areaChartDefinitionSchema = z.strictObject({
+  ...areaChartInputShape,
+  type: z.literal("area"),
+});
+
+/** 笛卡兒圖定義：三個分支的聯集，供前端單一個笛卡兒圖渲染元件取用。 */
+export type CartesianChartDefinition =
+  | z.infer<typeof lineChartDefinitionSchema>
+  | z.infer<typeof barChartDefinitionSchema>
+  | z.infer<typeof areaChartDefinitionSchema>;
 
 /**
  * 餅圖定義：單一數列 × 多類別。
@@ -111,7 +162,9 @@ export type PieChartDefinition = z.infer<typeof pieChartDefinitionSchema>;
  * 兩端才不會各自對「什麼是合法圖表」有不同認知。
  */
 export const chartDefinitionSchema = z.discriminatedUnion("type", [
-  cartesianChartDefinitionSchema,
+  lineChartDefinitionSchema,
+  barChartDefinitionSchema,
+  areaChartDefinitionSchema,
   pieChartDefinitionSchema,
 ]);
 
@@ -155,23 +208,30 @@ function parseOrError<T>(
   return { ok: false, error: toolError(`圖表參數驗證失敗 → ${details}`) };
 }
 
+/** 圖表定義 JSON 化後包成成功的 tool result。 */
+function toolSuccess(definition: ChartDefinition): ChartToolResult {
+  return { content: [{ type: "text", text: JSON.stringify(definition) }] };
+}
+
 /**
- * 驗證輸入並轉成圖表定義 JSON。
+ * 笛卡兒圖共通的欄位存在性比對：xKey 與 series[].key 都必須對得上 data 的欄位。
  *
- * 驗證失敗一律回傳 `isError: true` 與具體訊息，讓 LLM 能理解原因並自行重試，
- * 而不是靜默給出空圖表。
+ * 這條規則不隨圖表類型而異，故三個具名轉換函式共用同一份實作。
+ * 直接收下驗證後的輸入物件——三個欄位本來就同進同出，拆成三個參數
+ * 只是讓每個呼叫端多寫一次一模一樣的解構。對得上時回傳 null。
  */
-export function buildChartResult(type: CartesianChartType, input: unknown): ChartToolResult {
-  const parsed = parseOrError(chartInputSchema, input);
-  if (!parsed.ok) return parsed.error;
-
-  const { data, xKey } = parsed.value;
-
+function findMissingCartesianKeys(input: {
+  data: Record<string, string | number>[];
+  xKey: string;
+  series: { key: string }[];
+}): ChartToolResult | null {
+  const { data, xKey, series } = input;
   const availableKeys = Object.keys(data[0]);
+
   const missingXKey = assertKeyExists("xKey", xKey, availableKeys);
   if (missingXKey) return missingXKey;
 
-  const missingSeries = parsed.value.series
+  const missingSeries = series
     .map((s) => s.key)
     .filter((key) => !availableKeys.includes(key));
   if (missingSeries.length > 0) {
@@ -181,8 +241,45 @@ export function buildChartResult(type: CartesianChartType, input: unknown): Char
     );
   }
 
-  const definition: CartesianChartDefinition = { type, ...parsed.value };
-  return { content: [{ type: "text", text: JSON.stringify(definition) }] };
+  return null;
+}
+
+/**
+ * 驗證折線圖輸入並轉成圖表定義 JSON。
+ *
+ * 驗證失敗一律回傳 `isError: true` 與具體訊息，讓 LLM 能理解原因並自行重試，
+ * 而不是靜默給出空圖表。bar/area 兩個對應函式同此。
+ */
+export function buildLineChartResult(input: unknown): ChartToolResult {
+  const parsed = parseOrError(lineChartInputSchema, input);
+  if (!parsed.ok) return parsed.error;
+
+  const missingKeys = findMissingCartesianKeys(parsed.value);
+  if (missingKeys) return missingKeys;
+
+  return toolSuccess({ type: "line", ...parsed.value });
+}
+
+/** 驗證長條圖輸入並轉成圖表定義 JSON。 */
+export function buildBarChartResult(input: unknown): ChartToolResult {
+  const parsed = parseOrError(barChartInputSchema, input);
+  if (!parsed.ok) return parsed.error;
+
+  const missingKeys = findMissingCartesianKeys(parsed.value);
+  if (missingKeys) return missingKeys;
+
+  return toolSuccess({ type: "bar", ...parsed.value });
+}
+
+/** 驗證區域圖輸入並轉成圖表定義 JSON。 */
+export function buildAreaChartResult(input: unknown): ChartToolResult {
+  const parsed = parseOrError(areaChartInputSchema, input);
+  if (!parsed.ok) return parsed.error;
+
+  const missingKeys = findMissingCartesianKeys(parsed.value);
+  if (missingKeys) return missingKeys;
+
+  return toolSuccess({ type: "area", ...parsed.value });
 }
 
 /**
@@ -222,6 +319,5 @@ export function buildPieChartResult(input: unknown): ChartToolResult {
     }
   }
 
-  const definition: PieChartDefinition = { type: "pie", ...parsed.value };
-  return { content: [{ type: "text", text: JSON.stringify(definition) }] };
+  return toolSuccess({ type: "pie", ...parsed.value });
 }

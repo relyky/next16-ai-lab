@@ -1,7 +1,12 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 
-import { buildChartResult, buildPieChartResult } from "./chart-tool";
+import {
+  buildAreaChartResult,
+  buildBarChartResult,
+  buildLineChartResult,
+  buildPieChartResult,
+} from "./chart-tool";
 
 const validInput = {
   title: "月營收趨勢",
@@ -28,9 +33,16 @@ function errorTextOf(result: { content: { type: string; text?: string }[] }) {
   return result.content.map((c) => c.text ?? "").join("\n");
 }
 
-describe("buildChartResult", () => {
+/** 三個笛卡兒圖轉換函式的對照表：type 與具名函式。 */
+const CARTESIAN_BUILDERS = [
+  ["line", buildLineChartResult],
+  ["bar", buildBarChartResult],
+  ["area", buildAreaChartResult],
+] as const;
+
+describe("笛卡兒圖轉換函式", () => {
   it("正常輸入回傳對應 type 的圖表定義 JSON", () => {
-    const result = buildChartResult("line", validInput);
+    const result = buildLineChartResult(validInput);
 
     expect(result.isError).toBeFalsy();
     expect(chartOf(result)).toEqual({
@@ -42,22 +54,23 @@ describe("buildChartResult", () => {
     });
   });
 
-  it.each(["line", "bar", "area"] as const)("固定帶入 type: %s", (type) => {
-    expect(chartOf(buildChartResult(type, validInput))?.type).toBe(type);
+  it.each(CARTESIAN_BUILDERS)("固定帶入 type: %s", (type, build) => {
+    expect(chartOf(build(validInput))?.type).toBe(type);
   });
 
+  // 共通的驗證規則以 line 為代表測一次；三個函式走的是同一份 schema 與 helper。
   it("title 未提供時不出現在圖表定義中", () => {
     const noTitle = { data: validInput.data, xKey: validInput.xKey, series: validInput.series };
-    expect(chartOf(buildChartResult("line", noTitle))).not.toHaveProperty("title");
+    expect(chartOf(buildLineChartResult(noTitle))).not.toHaveProperty("title");
   });
 
   it("data 為空陣列時回傳 isError", () => {
-    const result = buildChartResult("line", { ...validInput, data: [] });
+    const result = buildLineChartResult({ ...validInput, data: [] });
     expect(result.isError).toBe(true);
   });
 
   it("xKey 不存在於 data[0] 時回傳 isError 並指出欄位名稱", () => {
-    const result = buildChartResult("line", { ...validInput, xKey: "quarter" });
+    const result = buildLineChartResult({ ...validInput, xKey: "quarter" });
 
     expect(result.isError).toBe(true);
     const message = errorTextOf(result);
@@ -68,7 +81,7 @@ describe("buildChartResult", () => {
 
   it("data 超過 100 筆時回傳驗證錯誤", () => {
     const data = Array.from({ length: 101 }, (_, i) => ({ month: `${i}月`, revenue: i }));
-    const result = buildChartResult("line", { ...validInput, data });
+    const result = buildLineChartResult({ ...validInput, data });
 
     expect(result.isError).toBe(true);
     expect(errorTextOf(result)).toContain("data");
@@ -76,14 +89,14 @@ describe("buildChartResult", () => {
 
   it("series 超過 6 組時回傳驗證錯誤", () => {
     const series = Array.from({ length: 7 }, (_, i) => ({ key: `s${i}` }));
-    const result = buildChartResult("line", { ...validInput, series });
+    const result = buildLineChartResult({ ...validInput, series });
 
     expect(result.isError).toBe(true);
     expect(errorTextOf(result)).toContain("series");
   });
 
   it("series[].color 非 hex 格式時回傳驗證錯誤", () => {
-    const result = buildChartResult("line", {
+    const result = buildLineChartResult({
       ...validInput,
       series: [{ key: "revenue", color: "red" }],
     });
@@ -93,8 +106,47 @@ describe("buildChartResult", () => {
   });
 
   it("series 為空陣列時回傳驗證錯誤", () => {
-    const result = buildChartResult("line", { ...validInput, series: [] });
+    const result = buildLineChartResult({ ...validInput, series: [] });
     expect(result.isError).toBe(true);
+  });
+
+  // 未知欄位靜默忽略會畫出一張參數對不上的圖；錯誤訊息需指出是哪個欄位。
+  it.each(CARTESIAN_BUILDERS)("%s 傳入未知欄位時回傳 isError 並指出該欄位", (_type, build) => {
+    const result = build({ ...validInput, bogus: true });
+
+    expect(result.isError).toBe(true);
+    expect(errorTextOf(result)).toContain("bogus");
+  });
+});
+
+/**
+ * stacked 僅 bar/area 接受。定義 JSON 保持稀疏：沒傳就沒有這個欄位，
+ * 由前端的類型對照表回退到該圖表類型的預設。
+ */
+describe("stacked", () => {
+  const STACKED_BUILDERS = [
+    ["bar", buildBarChartResult],
+    ["area", buildAreaChartResult],
+  ] as const;
+
+  it.each(STACKED_BUILDERS)("%s 未傳 stacked 時定義 JSON 不含該欄位", (_type, build) => {
+    expect(chartOf(build(validInput))).not.toHaveProperty("stacked");
+  });
+
+  it.each(STACKED_BUILDERS)("%s 傳入 stacked: true 時如實帶入定義 JSON", (_type, build) => {
+    expect(chartOf(build({ ...validInput, stacked: true }))?.stacked).toBe(true);
+  });
+
+  it.each(STACKED_BUILDERS)("%s 傳入 stacked: false 時如實帶入定義 JSON", (_type, build) => {
+    expect(chartOf(build({ ...validInput, stacked: false }))?.stacked).toBe(false);
+  });
+
+  // 堆疊折線容易被讀者誤讀成累加值而非獨立值，故折線圖不提供此參數。
+  it("line 傳入 stacked 時回傳 isError 並指出該欄位", () => {
+    const result = buildLineChartResult({ ...validInput, stacked: true });
+
+    expect(result.isError).toBe(true);
+    expect(errorTextOf(result)).toContain("stacked");
   });
 });
 

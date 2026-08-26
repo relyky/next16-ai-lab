@@ -12,35 +12,47 @@
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 
 import {
-  buildChartResult,
+  areaChartInputShape,
+  barChartInputShape,
+  buildAreaChartResult,
+  buildBarChartResult,
+  buildLineChartResult,
   buildPieChartResult,
-  chartInputShape,
+  lineChartInputShape,
   pieChartInputShape,
 } from "./chart-tool";
 
-/** 三個笛卡兒圖 tool 只差在回傳的 type 與描述，共用同一份 schema 與轉換邏輯；餅圖兩者皆不共用。 */
+/** 三個笛卡兒圖 tool 共通的用法說明；各自的差異寫在自己的描述裡。 */
 const SHARED_USAGE =
   "xKey 指定作為 X 軸的欄位（字串類別軸），series 指定要畫的數值欄位。";
 
 export const lineChartTool = tool(
   "line_chart",
   "把查到的資料轉成折線圖定義，適合呈現數值隨時間或順序的趨勢變化。" + SHARED_USAGE,
-  chartInputShape,
-  async (args) => buildChartResult("line", args)
+  lineChartInputShape,
+  async (args) => buildLineChartResult(args)
 );
 
+/**
+ * `stacked` 為選填且不設 schema 預設值，JSON Schema 因此不會帶 `default`，
+ * LLM 無從得知未傳時會發生什麼——故各自的預設值必須在描述裡明文寫出。
+ */
 export const barChartTool = tool(
   "bar_chart",
-  "把查到的資料轉成長條圖定義，適合比較不同類別之間的數值差異。" + SHARED_USAGE,
-  chartInputShape,
-  async (args) => buildChartResult("bar", args)
+  "把查到的資料轉成長條圖定義，適合比較不同類別之間的數值差異。" +
+    SHARED_USAGE +
+    "多數列時預設並排；使用者要求把數列疊起來時傳 stacked: true。",
+  barChartInputShape,
+  async (args) => buildBarChartResult(args)
 );
 
 export const areaChartTool = tool(
   "area_chart",
-  "把查到的資料轉成區域圖定義，適合呈現數量隨時間累積的變化幅度。" + SHARED_USAGE,
-  chartInputShape,
-  async (args) => buildChartResult("area", args)
+  "把查到的資料轉成區域圖定義，適合呈現數量隨時間累積的變化幅度。" +
+    SHARED_USAGE +
+    "多數列時預設堆疊；使用者要求各數列獨立比較、不該相加時傳 stacked: false。",
+  areaChartInputShape,
+  async (args) => buildAreaChartResult(args)
 );
 
 export const pieChartTool = tool(
