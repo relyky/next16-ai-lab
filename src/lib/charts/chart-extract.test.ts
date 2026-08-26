@@ -70,6 +70,38 @@ describe("createChartExtractor", () => {
     expect(extract(message)).toEqual([definition, definition]);
   });
 
+  // union 置換了擷取邏輯唯一依賴的 schema，需證明餅圖這條路沒斷。
+  it("取出 pie_chart 回傳的餅圖定義", () => {
+    const extract = createChartExtractor();
+    const pie = {
+      type: "pie" as const,
+      title: "成本結構",
+      data: [
+        { item: "原料", amount: 120 },
+        { item: "人力", amount: 80 },
+      ],
+      nameKey: "item",
+      valueKey: "amount",
+    };
+
+    extract(toolUse("t-1", "mcp__charts__pie_chart"));
+
+    expect(extract(toolResult("t-1", JSON.stringify(pie)))).toEqual([pie]);
+  });
+
+  it("餅圖內容不符 schema 時不產生圖表", () => {
+    const extract = createChartExtractor();
+
+    extract(toolUse("t-1", "mcp__charts__pie_chart"));
+
+    // 缺 valueKey：判別子對得上但分支欄位不齊，仍須被擋下。
+    expect(
+      extract(
+        toolResult("t-1", JSON.stringify({ type: "pie", data: [{ item: "原料" }], nameKey: "item" }))
+      )
+    ).toEqual([]);
+  });
+
   it("非 charts server 的 tool_result 一律略過，即使內容恰好符合圖表格式", () => {
     const extract = createChartExtractor();
 

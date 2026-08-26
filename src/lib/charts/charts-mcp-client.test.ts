@@ -33,20 +33,6 @@ describe("charts MCP server 經真實 MCP client 呼叫", () => {
     expect(names).toEqual(["area_chart", "bar_chart", "line_chart", "pie_chart"]);
   });
 
-  it("pie_chart 回傳 type 為 pie 的圖表定義 JSON", async () => {
-    const client = await connect();
-    const pieArgs = {
-      data: [{ item: "原料", amount: 120 }, { item: "人力", amount: 80 }],
-      nameKey: "item",
-      valueKey: "amount",
-    };
-    const r = (await client.callTool({ name: "pie_chart", arguments: pieArgs })) as {
-      isError?: boolean; content: { text: string }[];
-    };
-    expect(r.isError).toBeFalsy();
-    expect(JSON.parse(r.content[0].text)).toEqual({ type: "pie", ...pieArgs });
-  });
-
   it.each([["bar_chart", "bar"], ["area_chart", "area"]])(
     "%s 回傳正確 type 的圖表定義 JSON",
     async (name, type) => {

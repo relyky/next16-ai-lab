@@ -91,7 +91,7 @@ const CARTESIAN_KINDS = {
 >;
 
 /** 笛卡兒圖（line/bar/area）：共用同一組軸線／格線／tooltip 設定。 */
-function CartesianChart({ chart }: { chart: CartesianChartDefinition }) {
+function CartesianChartView({ chart }: { chart: CartesianChartDefinition }) {
   const { type, data, xKey, series } = chart;
   const { Container, Series, seriesProps } = CARTESIAN_KINDS[type];
 
@@ -121,7 +121,7 @@ function CartesianChart({ chart }: { chart: CartesianChartDefinition }) {
  * 配色一律由前端依扇形序號循環套用預設配色——資料筆數由 LLM 決定，
  * 要求它逐扇形配色既囉嗦又易出錯。
  */
-function PieChartBody({ chart }: { chart: PieChartDefinition }) {
+function PieChartView({ chart }: { chart: PieChartDefinition }) {
   const { data, nameKey, valueKey } = chart;
 
   return (
@@ -133,7 +133,6 @@ function PieChartBody({ chart }: { chart: PieChartDefinition }) {
         nameKey={nameKey}
         dataKey={valueKey}
         outerRadius={80}
-        label
         isAnimationActive={false}
       >
         {data.map((row, index) => (
@@ -150,9 +149,9 @@ function ChartBody({ chart }: { chart: ChartDefinition }) {
     case "line":
     case "bar":
     case "area":
-      return <CartesianChart chart={chart} />;
+      return <CartesianChartView chart={chart} />;
     case "pie":
-      return <PieChartBody chart={chart} />;
+      return <PieChartView chart={chart} />;
   }
 }
 

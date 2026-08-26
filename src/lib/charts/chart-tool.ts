@@ -88,6 +88,19 @@ export const cartesianChartDefinitionSchema = chartInputSchema.extend({
 export type CartesianChartDefinition = z.infer<typeof cartesianChartDefinitionSchema>;
 
 /**
+ * 餅圖定義：單一數列 × 多類別。
+ *
+ * 同輸入端採 strict：tool 產出與前端解析走同一份定義，
+ * 兩端對「什麼是合法餅圖」的寬嚴也必須一致。
+ */
+export const pieChartDefinitionSchema = z.strictObject({
+  ...pieChartInputShape,
+  type: z.literal("pie"),
+});
+
+export type PieChartDefinition = z.infer<typeof pieChartDefinitionSchema>;
+
+/**
  * 圖表定義 JSON：tool 的輸出，由前端 ChartCard 依 type 渲染。
  *
  * 以 `type` 為判別子的 discriminated union：各種圖表的資料形狀本質不同，
@@ -97,13 +110,6 @@ export type CartesianChartDefinition = z.infer<typeof cartesianChartDefinitionSc
  * 同時作為 schema 匯出：tool 產出與前端解析走同一份定義，
  * 兩端才不會各自對「什麼是合法圖表」有不同認知。
  */
-export const pieChartDefinitionSchema = z.object({
-  ...pieChartInputShape,
-  type: z.literal("pie"),
-});
-
-export type PieChartDefinition = z.infer<typeof pieChartDefinitionSchema>;
-
 export const chartDefinitionSchema = z.discriminatedUnion("type", [
   cartesianChartDefinitionSchema,
   pieChartDefinitionSchema,

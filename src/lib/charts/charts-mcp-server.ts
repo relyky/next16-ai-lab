@@ -18,7 +18,7 @@ import {
   pieChartInputShape,
 } from "./chart-tool";
 
-/** 三個 tool 只差在回傳的 type 與描述，共用同一份 schema 與轉換邏輯。 */
+/** 三個笛卡兒圖 tool 只差在回傳的 type 與描述，共用同一份 schema 與轉換邏輯；餅圖兩者皆不共用。 */
 const SHARED_USAGE =
   "xKey 指定作為 X 軸的欄位（字串類別軸），series 指定要畫的數值欄位。";
 
