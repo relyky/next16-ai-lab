@@ -212,7 +212,7 @@ describe("POST /api/chat", () => {
   });
 
   describe("工具往返不破壞串流事件流", () => {
-    it("忽略中間的 tool_use 與 tool_result 訊息，且不外洩工具參數片段", async () => {
+    it("工具往返只帶出名稱與狀態，不外洩工具參數片段", async () => {
       queryMock.mockImplementation(async function* () {
         yield { type: "system", subtype: "init", session_id: "s-1" };
         yield {
@@ -275,9 +275,17 @@ describe("POST /api/chat", () => {
       expect(events).toEqual([
         { type: "session", sessionId: "s-1" },
         { type: "delta", text: "我查一下。" },
+        {
+          type: "tool_use",
+          id: "t-1",
+          name: "mcp__qadb__search_asvt_project_basic",
+        },
+        { type: "tool_done", id: "t-1", ok: true },
         { type: "delta", text: "共 5 個專案。" },
         { type: "done", result: "共 5 個專案。", sessionId: "s-1" },
       ]);
+      // 工具參數（input 與其逐字增量）不得出現在任何事件裡。
+      expect(JSON.stringify(events)).not.toContain("first");
     });
   });
 
@@ -334,6 +342,8 @@ describe("POST /api/chat", () => {
       expect(events).toEqual([
         { type: "session", sessionId: "s-1" },
         { type: "delta", text: "我畫給你看。" },
+        { type: "tool_use", id: "t-1", name: "mcp__charts__line_chart" },
+        { type: "tool_done", id: "t-1", ok: true },
         { type: "chart", chart: line },
         { type: "done", result: "如圖所示。", sessionId: "s-1" },
       ]);
@@ -387,6 +397,205 @@ describe("POST /api/chat", () => {
       const events = await drain(res.body!);
 
       expect(events.some((e) => e.type === "chart")).toBe(false);
+    });
+  });
+
+  describe("工具呼叫歷程", () => {
+    /** 產生一次「呼叫工具 → 拿到結果」的訊息往返。 */
+    function toolRoundTrip(
+      id: string,
+      name: string,
+      content: unknown,
+      isError = false
+    ) {
+      return [
+        {
+          type: "assistant",
+          message: { content: [{ type: "tool_use", id, name, input: {} }] },
+        },
+        {
+          type: "user",
+          message: {
+            content: [
+              {
+                type: "tool_result",
+                tool_use_id: id,
+                content,
+                ...(isError ? { is_error: true } : {}),
+              },
+            ],
+          },
+        },
+      ];
+    }
+
+    /** 跑一次請求，回傳串流吐出的全部事件。 */
+    async function runStream(messages: unknown[]) {
+      queryMock.mockImplementation(async function* () {
+        yield* messages;
+      });
+      const { POST } = await import("./route");
+      const res = await POST(chatRequest());
+      return drain(res.body!);
+    }
+
+    const successResult = {
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      result: "好的。",
+      session_id: "s-1",
+    };
+
+    it("依序送出 tool_use 與 tool_done", async () => {
+      const events = await runStream([
+        { type: "system", subtype: "init", session_id: "s-1" },
+        ...toolRoundTrip("t-1", "mcp__qadb__search_asvt_project_basic", "[...]"),
+        successResult,
+      ]);
+
+      expect(events).toEqual([
+        { type: "session", sessionId: "s-1" },
+        { type: "tool_use", id: "t-1", name: "mcp__qadb__search_asvt_project_basic" },
+        { type: "tool_done", id: "t-1", ok: true },
+        { type: "done", result: "好的。", sessionId: "s-1" },
+      ]);
+    });
+
+    it("工具名稱以原始全名送出，不做前綴剝除", async () => {
+      const events = await runStream([
+        { type: "system", subtype: "init", session_id: "s-1" },
+        ...toolRoundTrip("t-1", "mcp__charts__bar_chart", "{}"),
+        successResult,
+      ]);
+
+      expect(events).toContainEqual({
+        type: "tool_use",
+        id: "t-1",
+        name: "mcp__charts__bar_chart",
+      });
+    });
+
+    it("工具失敗時 ok 為 false，並帶上失敗訊息", async () => {
+      const events = await runStream([
+        { type: "system", subtype: "init", session_id: "s-1" },
+        ...toolRoundTrip("t-1", "mcp__qadb__query", "連線逾時", true),
+        successResult,
+      ]);
+
+      expect(events).toContainEqual({
+        type: "tool_done",
+        id: "t-1",
+        ok: false,
+        message: "連線逾時",
+      });
+    });
+
+    it("超長的失敗訊息被截斷並加上省略號", async () => {
+      const long = "錯".repeat(300);
+      const events = await runStream([
+        { type: "system", subtype: "init", session_id: "s-1" },
+        ...toolRoundTrip("t-1", "mcp__qadb__query", long, true),
+        successResult,
+      ]);
+
+      const done = events.find((e) => e.type === "tool_done");
+      expect(done).toMatchObject({ id: "t-1", ok: false });
+      const message = (done as { message: string }).message;
+      expect(message).toBe(`${"錯".repeat(100)}…`);
+    });
+
+    it("失敗訊息以 content block 陣列傳來時同樣可讀出", async () => {
+      const events = await runStream([
+        { type: "system", subtype: "init", session_id: "s-1" },
+        ...toolRoundTrip(
+          "t-1",
+          "mcp__charts__line_chart",
+          [{ type: "text", text: "圖表參數驗證失敗" }],
+          true
+        ),
+        successResult,
+      ]);
+
+      expect(events).toContainEqual({
+        type: "tool_done",
+        id: "t-1",
+        ok: false,
+        message: "圖表參數驗證失敗",
+      });
+    });
+
+    it("孤兒 tool_result（無對應 tool_use）不產生事件", async () => {
+      const events = await runStream([
+        { type: "system", subtype: "init", session_id: "s-1" },
+        {
+          type: "user",
+          message: {
+            content: [{ type: "tool_result", tool_use_id: "unknown", content: "x" }],
+          },
+        },
+        successResult,
+      ]);
+
+      expect(events.some((e) => e.type === "tool_done")).toBe(false);
+    });
+
+    it("多個工具呼叫時事件順序正確", async () => {
+      const events = await runStream([
+        { type: "system", subtype: "init", session_id: "s-1" },
+        ...toolRoundTrip("t-1", "mcp__qadb__query", "[...]"),
+        ...toolRoundTrip("t-2", "mcp__charts__bar_chart", "{}"),
+        successResult,
+      ]);
+
+      expect(
+        events.filter((e) => e.type === "tool_use" || e.type === "tool_done")
+      ).toEqual([
+        { type: "tool_use", id: "t-1", name: "mcp__qadb__query" },
+        { type: "tool_done", id: "t-1", ok: true },
+        { type: "tool_use", id: "t-2", name: "mcp__charts__bar_chart" },
+        { type: "tool_done", id: "t-2", ok: true },
+      ]);
+    });
+
+    it("同一則 assistant 訊息含多個 tool_use 時全部送出", async () => {
+      const events = await runStream([
+        { type: "system", subtype: "init", session_id: "s-1" },
+        {
+          type: "assistant",
+          message: {
+            content: [
+              { type: "tool_use", id: "t-1", name: "mcp__qadb__a", input: {} },
+              { type: "tool_use", id: "t-2", name: "mcp__qadb__b", input: {} },
+            ],
+          },
+        },
+        successResult,
+      ]);
+
+      expect(events.filter((e) => e.type === "tool_use")).toEqual([
+        { type: "tool_use", id: "t-1", name: "mcp__qadb__a" },
+        { type: "tool_use", id: "t-2", name: "mcp__qadb__b" },
+      ]);
+    });
+
+    it("圖表工具的 tool_use 事件排在其 chart 事件之前", async () => {
+      const chart = {
+        type: "line",
+        title: "月營收",
+        data: [{ month: "1月", revenue: 120 }],
+        xKey: "month",
+        series: [{ key: "revenue" }],
+      };
+      const events = await runStream([
+        { type: "system", subtype: "init", session_id: "s-1" },
+        ...toolRoundTrip("t-1", "mcp__charts__line_chart", JSON.stringify(chart)),
+        successResult,
+      ]);
+
+      const types = events.map((e) => e.type);
+      expect(types.indexOf("tool_use")).toBeLessThan(types.indexOf("chart"));
+      expect(types.indexOf("tool_done")).toBeLessThan(types.indexOf("chart"));
     });
   });
 

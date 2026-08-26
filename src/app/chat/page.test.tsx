@@ -156,6 +156,247 @@ describe("Chat page 圖表渲染", () => {
   });
 });
 
+describe("Chat page 工具呼叫歷程", () => {
+  const toolUse = (id: string, name: string) => ({ type: "tool_use", id, name });
+
+  it("工具進行中顯示旋轉指示器，收到結束事件後轉為成功圖示", async () => {
+    stubFetch(async () =>
+      ndjsonResponse(
+        toolUse("t-1", "mcp__qadb__search_asvt_project_basic"),
+        { type: "tool_done", id: "t-1", ok: true },
+        { type: "done", result: "共 5 個專案。", sessionId: "s-1" }
+      )
+    );
+
+    const { container } = render(<ChatPage />);
+    await ask("有幾個專案？");
+
+    expect(await screen.findByText("共 5 個專案。")).toBeInTheDocument();
+    // 工具全名以原樣顯示，不做前綴剝除。
+    expect(
+      screen.getByText("mcp__qadb__search_asvt_project_basic")
+    ).toBeInTheDocument();
+    expect(
+      container.querySelector('[data-slot="tool-usage"][data-status="success"]')
+    ).not.toBeNull();
+    expect(container.querySelector('[data-slot="tool-usage-spinner"]')).toBeNull();
+  });
+
+  it("結束事件尚未到達時停留在進行中狀態", async () => {
+    stubFetch(async (_input, init) =>
+      abortableStreamResponse(
+        [
+          new TextEncoder().encode(
+            ndjson(toolUse("t-1", "mcp__qadb__query"))
+          ),
+        ],
+        init?.signal ?? undefined
+      )
+    );
+
+    const { container } = render(<ChatPage />);
+    await ask("查一下");
+
+    await waitFor(() =>
+      expect(
+        container.querySelector('[data-slot="tool-usage"][data-status="running"]')
+      ).not.toBeNull()
+    );
+    expect(
+      container.querySelector('[data-slot="tool-usage-spinner"]')
+    ).not.toBeNull();
+  });
+
+  it("工具失敗時顯示失敗圖示與簡短訊息", async () => {
+    stubFetch(async () =>
+      ndjsonResponse(
+        toolUse("t-1", "mcp__qadb__query"),
+        { type: "tool_done", id: "t-1", ok: false, message: "連線逾時" },
+        { type: "done", result: "抱歉，查不到。", sessionId: "s-1" }
+      )
+    );
+
+    const { container } = render(<ChatPage />);
+    await ask("查一下");
+
+    expect(await screen.findByText("抱歉，查不到。")).toBeInTheDocument();
+    expect(screen.getByText("連線逾時")).toBeInTheDocument();
+    expect(
+      container.querySelector('[data-slot="tool-usage"][data-status="error"]')
+    ).not.toBeNull();
+  });
+
+  it("多個工具依呼叫順序排列", async () => {
+    stubFetch(async () =>
+      ndjsonResponse(
+        toolUse("t-1", "mcp__qadb__query"),
+        { type: "tool_done", id: "t-1", ok: true },
+        toolUse("t-2", "mcp__charts__bar_chart"),
+        { type: "tool_done", id: "t-2", ok: true },
+        { type: "done", result: "如圖所示。", sessionId: "s-1" }
+      )
+    );
+
+    const { container } = render(<ChatPage />);
+    await ask("畫張圖");
+
+    await screen.findByText("如圖所示。");
+    const names = Array.from(
+      container.querySelectorAll('[data-slot="tool-usage"]')
+    ).map((el) => el.querySelector("span")?.textContent);
+    expect(names).toEqual(["mcp__qadb__query", "mcp__charts__bar_chart"]);
+  });
+
+  it("工具列渲染在回應文字之前", async () => {
+    stubFetch(async () =>
+      ndjsonResponse(
+        toolUse("t-1", "mcp__qadb__query"),
+        { type: "tool_done", id: "t-1", ok: true },
+        { type: "done", result: "共 5 個專案。", sessionId: "s-1" }
+      )
+    );
+
+    const { container } = render(<ChatPage />);
+    await ask("有幾個專案？");
+
+    const bubble = (await screen.findByText("共 5 個專案。")).closest(
+      '[data-slot="assistant-message"]'
+    )!;
+    const list = bubble.querySelector('[data-slot="tool-usage-list"]')!;
+    const text = screen.getByText("共 5 個專案。");
+    expect(
+      list.compareDocumentPosition(text) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(container).toBeTruthy();
+  });
+
+  it("開關關閉時工具列不渲染，重新開啟後先前歷程完整重現", async () => {
+    stubFetch(async () =>
+      ndjsonResponse(
+        toolUse("t-1", "mcp__qadb__query"),
+        { type: "tool_done", id: "t-1", ok: true },
+        { type: "done", result: "共 5 個專案。", sessionId: "s-1" }
+      )
+    );
+
+    const user = userEvent.setup();
+    const { container } = render(<ChatPage />);
+    await ask("有幾個專案？");
+    await screen.findByText("共 5 個專案。");
+
+    const toggle = screen.getByRole("switch", { name: /顯示處理過程/ });
+    await user.click(toggle);
+
+    expect(container.querySelector('[data-slot="tool-usage-list"]')).toBeNull();
+    // 純顯示濾鏡：文字不受影響。
+    expect(screen.getByText("共 5 個專案。")).toBeInTheDocument();
+
+    await user.click(toggle);
+
+    expect(await screen.findByText("mcp__qadb__query")).toBeInTheDocument();
+    expect(
+      container.querySelector('[data-slot="tool-usage"][data-status="success"]')
+    ).not.toBeNull();
+  });
+
+  it("開關預設為開啟", async () => {
+    render(<ChatPage />);
+
+    expect(screen.getByRole("switch", { name: /顯示處理過程/ })).toBeChecked();
+  });
+
+  it("中斷後不留下任何進行中的工具", async () => {
+    stubFetch(async (_input, init) =>
+      abortableStreamResponse(
+        [
+          new TextEncoder().encode(
+            ndjson(
+              { type: "session", sessionId: "s-1" },
+              toolUse("t-1", "mcp__qadb__query")
+            )
+          ),
+        ],
+        init?.signal ?? undefined
+      )
+    );
+
+    const user = userEvent.setup();
+    const { container } = render(<ChatPage />);
+    await ask("查一下");
+
+    await screen.findByText("mcp__qadb__query");
+    await user.click(await screen.findByRole("button", { name: "中斷" }));
+
+    await screen.findByText("（已中斷）");
+    expect(
+      container.querySelector('[data-slot="tool-usage"][data-status="running"]')
+    ).toBeNull();
+    // 收成終態時標示為已中斷，使用者不會誤以為工具是自己失敗的。
+    expect(
+      container.querySelector('[data-slot="tool-usage"][data-status="error"]')
+        ?.textContent
+    ).toContain("已中斷");
+    expect(container.querySelector('[data-slot="tool-usage-spinner"]')).toBeNull();
+  });
+
+  it("串流正常結束但工具沒有結束事件時，不留下進行中的工具", async () => {
+    // tool_result 未送達就收到 done（工具權限被拒、turn 用盡等），
+    // 若不收尾會在一則「成功」的回應上留下永遠轉圈的指示器。
+    stubFetch(async () =>
+      ndjsonResponse(toolUse("t-1", "mcp__qadb__query"), {
+        type: "done",
+        result: "共 5 個專案。",
+        sessionId: "s-1",
+      })
+    );
+
+    const { container } = render(<ChatPage />);
+    await ask("查一下");
+
+    expect(await screen.findByText("共 5 個專案。")).toBeInTheDocument();
+    expect(
+      container.querySelector('[data-slot="tool-usage"][data-status="running"]')
+    ).toBeNull();
+    expect(container.querySelector('[data-slot="tool-usage-spinner"]')).toBeNull();
+  });
+
+  it("串流失敗後不留下任何進行中的工具", async () => {
+    stubFetch(async () =>
+      ndjsonResponse(toolUse("t-1", "mcp__qadb__query"), {
+        type: "error",
+        error: "連線中斷",
+      })
+    );
+
+    const { container } = render(<ChatPage />);
+    await ask("查一下");
+
+    expect(await screen.findByText(/連線中斷/)).toBeInTheDocument();
+    expect(
+      container.querySelector('[data-slot="tool-usage"][data-status="running"]')
+    ).toBeNull();
+    expect(container.querySelector('[data-slot="tool-usage-spinner"]')).toBeNull();
+  });
+
+  it("工具歷程不影響圖表卡片的渲染", async () => {
+    stubFetch(async () =>
+      ndjsonResponse(
+        toolUse("t-1", "mcp__charts__line_chart"),
+        { type: "tool_done", id: "t-1", ok: true },
+        chartEvent("line", "月營收趨勢"),
+        { type: "done", result: "如圖所示。", sessionId: "s-1" }
+      )
+    );
+
+    const { container } = render(<ChatPage />);
+    await ask("畫張圖");
+
+    await screen.findByText("如圖所示。");
+    expect(container.querySelectorAll('[data-slot="chart-card"]')).toHaveLength(1);
+    expect(screen.getByText("mcp__charts__line_chart")).toBeInTheDocument();
+  });
+});
+
 describe("Chat page", () => {
   it("逐段顯示串流回覆，並以最終完整內容為準", async () => {
     stubFetch(async () =>
