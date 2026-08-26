@@ -114,6 +114,10 @@ function CartesianChartView({ chart }: { chart: CartesianChartDefinition }) {
 
   // 定義 JSON 是稀疏的：LLM 沒傳 stacked 時回退到該圖表類型的預設。
   // stackId 的注入邏輯三種圖完全相同，不屬於各類型的差異，故不進對照表。
+  //
+  // 用 `in` 而非依 type 收窄，是因為 line 分支根本沒有 stacked 這個 key——
+  // 那正是「折線圖不接受 stacked」在型別上的表達，不該為了此處好寫而讓三個
+  // 分支都帶上這個欄位（那會讓 line_chart 的 tool 簽章對 LLM 說謊）。
   const stacked = ("stacked" in chart ? chart.stacked : undefined) ?? defaultStacked;
   const stackProps = stacked ? { stackId: STACK_ID } : {};
 

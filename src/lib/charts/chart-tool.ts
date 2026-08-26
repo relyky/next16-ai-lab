@@ -6,10 +6,12 @@
  */
 import { z } from "zod";
 
-/** 笛卡兒圖類型（類別軸 × 多數列）；決定前端要 render 哪一種 recharts 圖表。 */
-export const CARTESIAN_CHART_TYPES = ["line", "bar", "area"] as const;
-
-export type CartesianChartType = (typeof CARTESIAN_CHART_TYPES)[number];
+/**
+ * 笛卡兒圖類型（類別軸 × 多數列）；決定前端要 render 哪一種 recharts 圖表。
+ *
+ * 各圖表定義的 `type` 由自己的 `z.literal` 決定，此別名只供前端的類型對照表使用。
+ */
+export type CartesianChartType = "line" | "bar" | "area";
 
 /** 上限用途為避免 LLM 產生過大的資料集拖垮訊息大小與圖表可讀性。 */
 const MAX_DATA_ROWS = 100;
@@ -215,13 +217,15 @@ function toolSuccess(definition: ChartDefinition): ChartToolResult {
  * 笛卡兒圖共通的欄位存在性比對：xKey 與 series[].key 都必須對得上 data 的欄位。
  *
  * 這條規則不隨圖表類型而異，故三個具名轉換函式共用同一份實作。
- * 對得上時回傳 null。
+ * 直接收下驗證後的輸入物件——三個欄位本來就同進同出，拆成三個參數
+ * 只是讓每個呼叫端多寫一次一模一樣的解構。對得上時回傳 null。
  */
-function assertCartesianKeys(
-  data: Record<string, string | number>[],
-  xKey: string,
-  series: { key: string }[]
-): ChartToolResult | null {
+function findMissingCartesianKeys(input: {
+  data: Record<string, string | number>[];
+  xKey: string;
+  series: { key: string }[];
+}): ChartToolResult | null {
+  const { data, xKey, series } = input;
   const availableKeys = Object.keys(data[0]);
 
   const missingXKey = assertKeyExists("xKey", xKey, availableKeys);
@@ -250,8 +254,7 @@ export function buildLineChartResult(input: unknown): ChartToolResult {
   const parsed = parseOrError(lineChartInputSchema, input);
   if (!parsed.ok) return parsed.error;
 
-  const { data, xKey, series } = parsed.value;
-  const missingKeys = assertCartesianKeys(data, xKey, series);
+  const missingKeys = findMissingCartesianKeys(parsed.value);
   if (missingKeys) return missingKeys;
 
   return toolSuccess({ type: "line", ...parsed.value });
@@ -262,8 +265,7 @@ export function buildBarChartResult(input: unknown): ChartToolResult {
   const parsed = parseOrError(barChartInputSchema, input);
   if (!parsed.ok) return parsed.error;
 
-  const { data, xKey, series } = parsed.value;
-  const missingKeys = assertCartesianKeys(data, xKey, series);
+  const missingKeys = findMissingCartesianKeys(parsed.value);
   if (missingKeys) return missingKeys;
 
   return toolSuccess({ type: "bar", ...parsed.value });
@@ -274,8 +276,7 @@ export function buildAreaChartResult(input: unknown): ChartToolResult {
   const parsed = parseOrError(areaChartInputSchema, input);
   if (!parsed.ok) return parsed.error;
 
-  const { data, xKey, series } = parsed.value;
-  const missingKeys = assertCartesianKeys(data, xKey, series);
+  const missingKeys = findMissingCartesianKeys(parsed.value);
   if (missingKeys) return missingKeys;
 
   return toolSuccess({ type: "area", ...parsed.value });
