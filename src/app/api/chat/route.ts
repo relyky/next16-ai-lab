@@ -5,6 +5,7 @@ import { createChartExtractor } from "@/lib/charts/chart-extract";
 import { createChartsMcpServer } from "@/lib/charts/charts-mcp-server";
 import type { ChatStreamEvent } from "@/lib/chat-stream";
 import { getServerConfig } from "@/lib/server-config";
+import { createToolExtractor } from "@/lib/tools/tool-extract";
 
 export const runtime = "nodejs";
 
@@ -85,9 +86,16 @@ export async function POST(request: Request) {
 
       // 一次對話一個擷取器：它要記住哪些 tool_use 是 charts 發出的。
       const extractCharts = createChartExtractor();
+      // 同理，工具擷取器要記住哪些 tool_use 尚未收到結果。
+      const extractToolEvents = createToolExtractor();
 
       try {
         for await (const message of query({ prompt: promptText, options })) {
+          // tool_use 語意上早於它所產生的圖表，故排在 chart 事件之前。
+          for (const event of extractToolEvents(message)) {
+            send(event);
+          }
+
           // 圖表定義藏在工具往返裡，與文字增量各走各的，依產生順序送出。
           for (const chart of extractCharts(message)) {
             send({ type: "chart", chart });

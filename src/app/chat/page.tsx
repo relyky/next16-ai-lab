@@ -4,7 +4,9 @@ import { useRef, useState } from "react";
 
 import { ChartCard } from "@/components/chart-card";
 import { ChatInput } from "@/components/chat-input";
+import { ToolUsageList, type ToolUsage } from "@/components/tool-usage-list";
 import { Card } from "@/components/ui/card";
+import { Switch } from "@/components/ui/switch";
 import type { ChartDefinition } from "@/lib/charts/chart-tool";
 import type { ChatStreamEvent } from "@/lib/chat-stream";
 
@@ -14,6 +16,8 @@ type Message = {
   text: string;
   /** 本則回應中助手產生的圖表，依產生順序排列；只有 assistant 會有。 */
   charts?: ChartDefinition[];
+  /** 本則回應中的工具呼叫歷程，依呼叫順序排列；只有 assistant 會有。 */
+  toolUsages?: ToolUsage[];
 };
 
 function UserMessage({ text }: { text: string }) {
@@ -26,7 +30,15 @@ function UserMessage({ text }: { text: string }) {
   );
 }
 
-function AssistantMessage({ text, charts }: { text: string; charts?: ChartDefinition[] }) {
+function AssistantMessage({
+  text,
+  charts,
+  toolUsages,
+}: {
+  text: string;
+  charts?: ChartDefinition[];
+  toolUsages?: ToolUsage[];
+}) {
   return (
     <div className="flex justify-start">
       {/* 有圖表時撐滿寬度，圖表才有可讀的尺寸；純文字則維持隨內容縮放。 */}
@@ -34,6 +46,8 @@ function AssistantMessage({ text, charts }: { text: string; charts?: ChartDefini
         data-slot="assistant-message"
         className={charts?.length ? "w-[90%] p-0" : "max-w-[90%] p-0"}
       >
+        {/* 工具列在文字之前，反映「先呼叫工具、再依結果作答」的實際流程。 */}
+        {toolUsages?.length ? <ToolUsageList usages={toolUsages} /> : null}
         {/* 圖表可能比文字先到；文字還沒有內容時不留空白區塊。 */}
         {text ? (
           <div className="px-4 py-3 text-sm whitespace-pre-wrap">{text}</div>
@@ -55,6 +69,8 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  // 純顯示濾鏡：關閉期間歷程照常收集，重新打開後完整可見。刻意不做持久化。
+  const [showToolUsages, setShowToolUsages] = useState(true);
   const abortRef = useRef<AbortController | null>(null);
 
   async function handleSubmit(text: string) {
@@ -83,6 +99,20 @@ export default function ChatPage() {
     let accumulated = "";
     // 圖表事件不會重送，累積在本地才能與文字更新一起送進同一則訊息。
     const charts: ChartDefinition[] = [];
+    // 工具事件同理；狀態轉換需要能依 id 找回既有那一列。
+    // 每次更新都換成新陣列與新物件，不改動已交給 React 的既有值。
+    let toolUsages: ToolUsage[] = [];
+    const pushToolUsages = () => upsertReply({ toolUsages });
+    /** 串流結束時把仍在進行中的工具收成終態，畫面不留下永遠轉圈的指示器。 */
+    const settlePendingTools = (message: string) => {
+      if (!toolUsages.some((u) => u.status === "running")) return;
+      toolUsages = toolUsages.map((usage) =>
+        usage.status === "running"
+          ? { ...usage, status: "error" as const, message }
+          : usage
+      );
+      pushToolUsages();
+    };
     const controller = new AbortController();
     abortRef.current = controller;
 
@@ -132,6 +162,25 @@ export default function ChatPage() {
         } else if (event.type === "chart") {
           charts.push(event.chart);
           upsertReply({ charts: [...charts] });
+        } else if (event.type === "tool_use") {
+          toolUsages = [
+            ...toolUsages,
+            { id: event.id, name: event.name, status: "running" },
+          ];
+          pushToolUsages();
+        } else if (event.type === "tool_done") {
+          // 沒有對應的 tool_use 就無列可更新；後端已濾掉孤兒，此處僅為防禦。
+          if (!toolUsages.some((u) => u.id === event.id)) return;
+          toolUsages = toolUsages.map((usage) =>
+            usage.id === event.id
+              ? {
+                  ...usage,
+                  status: event.ok ? ("success" as const) : ("error" as const),
+                  message: event.ok ? undefined : event.message,
+                }
+              : usage
+          );
+          pushToolUsages();
         } else if (event.type === "done") {
           setSessionId(event.sessionId);
           // 最終完整訊息為權威內容；若為空則保留已累積的增量。
@@ -157,16 +206,22 @@ export default function ChatPage() {
       if (!handledAny) {
         throw new Error("回應格式錯誤");
       }
+
+      // 串流正常結束時仍可能有工具沒等到結果（工具權限被拒、turn 用盡等）。
+      // 不收尾的話，一則「成功」的回應上會留著永遠轉圈的指示器。
+      settlePendingTools("未完成");
     } catch (err) {
       // 使用者主動中斷不是失敗：保留已浮現的內容，只加註標示。
       if (err instanceof DOMException && err.name === "AbortError") {
         const marker = "（已中斷）";
+        settlePendingTools("已中斷");
         upsertReply({ text: accumulated ? `${accumulated}\n\n${marker}` : marker });
         return;
       }
 
       const reason = err instanceof Error ? err.message : "未知錯誤";
       const notice = `抱歉，這次回覆失敗了：${reason}。請再試一次。`;
+      settlePendingTools("未完成");
       // 已浮現的內容保留，錯誤提示接在後面。
       upsertReply({ text: accumulated ? `${accumulated}\n\n${notice}` : notice });
     } finally {
@@ -177,6 +232,15 @@ export default function ChatPage() {
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-4">
+      <label className="flex items-center gap-2 self-end pt-4 text-sm text-muted-foreground">
+        {/* base-ui 的 onCheckedChange 還帶第二個參數，顯式接第一個才不會誤傳。 */}
+        <Switch
+          checked={showToolUsages}
+          onCheckedChange={(checked) => setShowToolUsages(checked)}
+        />
+        顯示處理過程
+      </label>
+
       <div className="flex flex-1 flex-col gap-4 py-8">
         {messages.length === 0 && (
           <p className="text-sm text-muted-foreground">
@@ -191,6 +255,7 @@ export default function ChatPage() {
               key={message.id}
               text={message.text}
               charts={message.charts}
+              toolUsages={showToolUsages ? message.toolUsages : undefined}
             />
           )
         )}

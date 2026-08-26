@@ -8,37 +8,11 @@
  * 只靠 schema 驗證不夠：其他 server（如 qadb）的回傳內容若碰巧同型，
  * 會被誤畫成圖表。故以「來源是 charts tool」為主、schema 驗證為輔。
  */
+import { contentBlocks, resultText } from "@/lib/message-blocks";
 import { chartDefinitionSchema, type ChartDefinition } from "./chart-tool";
 
 /** charts server 的工具全名前綴；與 route 掛載時的 server 名稱一致。 */
 const CHARTS_TOOL_PREFIX = "mcp__charts__";
-
-type ContentBlock = {
-  type?: unknown;
-  id?: unknown;
-  name?: unknown;
-  tool_use_id?: unknown;
-  content?: unknown;
-  text?: unknown;
-  is_error?: unknown;
-};
-
-function contentBlocks(message: unknown): ContentBlock[] {
-  const content = (message as { message?: { content?: unknown } })?.message?.content;
-  return Array.isArray(content) ? (content as ContentBlock[]) : [];
-}
-
-/**
- * tool_result 的 content 可能是純字串，也可能是 content block 陣列。
- * 兩種形式都攤平成單一字串再交給 schema 判讀。
- */
-function resultText(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  return content
-    .map((block) => (typeof block?.text === "string" ? block.text : ""))
-    .join("");
-}
 
 function parseChart(text: string): ChartDefinition | null {
   let json: unknown;
