@@ -33,7 +33,38 @@ describe("charts MCP server 經真實 MCP client 呼叫", () => {
     expect(names).toEqual(["area_chart", "bar_chart", "line_chart", "pie_chart"]);
   });
 
-  it.each([["bar_chart", "bar"], ["area_chart", "area"]])(
+  /**
+   * stacked 是否出現在 tool 簽章上，只有走完整協定拿到 inputSchema 才驗得到。
+   * 這是「line_chart 不接受 stacked」這條規則對 LLM 唯一可見的落點。
+   */
+  it("line_chart 的 inputSchema 不含 stacked，bar/area 含之且型別為布林", async () => {
+    const client = await connect();
+    const byName = new Map(
+      (await client.listTools()).tools.map((t) => [t.name, t.inputSchema])
+    );
+
+    expect(byName.get("line_chart")?.properties).not.toHaveProperty("stacked");
+    for (const name of ["bar_chart", "area_chart"]) {
+      const properties = byName.get(name)?.properties as
+        | Record<string, { type?: string }>
+        | undefined;
+      expect(properties?.stacked?.type).toBe("boolean");
+    }
+  });
+
+  // stacked 未在 schema 層設預設值，JSON Schema 因此不帶 default，
+  // 各自的預設只能寫在描述裡；缺了 LLM 就無從得知要顯式傳值。
+  it.each([
+    ["bar_chart", "並排"],
+    ["area_chart", "堆疊"],
+  ])("%s 的描述明文寫出 stacked 的預設", async (name, expected) => {
+    const client = await connect();
+    const found = (await client.listTools()).tools.find((t) => t.name === name);
+
+    expect(found?.description).toContain("預設" + expected);
+  });
+
+  it.each([["bar_chart", "bar"], ["area_chart", "area"], ["line_chart", "line"]])(
     "%s 回傳正確 type 的圖表定義 JSON",
     async (name, type) => {
       const client = await connect();

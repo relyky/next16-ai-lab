@@ -28,6 +28,16 @@ function textOf(result: unknown) {
   return content.map((c) => c.text ?? "").join("\n");
 }
 
+/**
+ * `it.each` 會把三個 tool 的型別合成聯集，其 handler 參數型別隨之交集，
+ * bar/area 專有的 `stacked` 因而變成必填。實際呼叫時該欄位可省略
+ * （選填），此 helper 只負責補上型別層要的形狀。
+ */
+function asToolArgs(args: Record<string, unknown>) {
+  return args as Parameters<typeof barChartTool.handler>[0] &
+    Parameters<typeof lineChartTool.handler>[0];
+}
+
 /** 三個 tool 的對照表：type、tool 名稱、tool 實例，三處測試共用。 */
 const CHART_TOOLS = [
   ["line", "line_chart", lineChartTool],
@@ -76,7 +86,7 @@ describe("charts MCP server", () => {
   it.each(CHART_TOOLS)(
     "呼叫 %s tool 回傳對應 type 的圖表定義 JSON",
     async (type, _name, chartTool) => {
-      const result = await chartTool.handler(validArgs, {});
+      const result = await chartTool.handler(asToolArgs(validArgs), {});
 
       expect(result.isError).toBeFalsy();
       expect(JSON.parse(textOf(result))).toEqual({ type, ...validArgs });
@@ -88,7 +98,10 @@ describe("charts MCP server", () => {
   it.each(CHART_TOOLS)(
     "%s tool 驗證失敗時回傳 isError 與具體錯誤訊息",
     async (_type, _name, chartTool) => {
-      const result = await chartTool.handler({ ...validArgs, xKey: "quarter" }, {});
+      const result = await chartTool.handler(
+        asToolArgs({ ...validArgs, xKey: "quarter" }),
+        {}
+      );
 
       expect(result.isError).toBe(true);
       expect(textOf(result)).toContain("quarter");

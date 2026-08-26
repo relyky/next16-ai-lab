@@ -33,16 +33,24 @@ export const lineChartTool = tool(
   async (args) => buildLineChartResult(args)
 );
 
+/**
+ * `stacked` 為選填且不設 schema 預設值，JSON Schema 因此不會帶 `default`，
+ * LLM 無從得知未傳時會發生什麼——故各自的預設值必須在描述裡明文寫出。
+ */
 export const barChartTool = tool(
   "bar_chart",
-  "把查到的資料轉成長條圖定義，適合比較不同類別之間的數值差異。" + SHARED_USAGE,
+  "把查到的資料轉成長條圖定義，適合比較不同類別之間的數值差異。" +
+    SHARED_USAGE +
+    "多數列時預設並排；使用者要求把數列疊起來時傳 stacked: true。",
   barChartInputShape,
   async (args) => buildBarChartResult(args)
 );
 
 export const areaChartTool = tool(
   "area_chart",
-  "把查到的資料轉成區域圖定義，適合呈現數量隨時間累積的變化幅度。" + SHARED_USAGE,
+  "把查到的資料轉成區域圖定義，適合呈現數量隨時間累積的變化幅度。" +
+    SHARED_USAGE +
+    "多數列時預設堆疊；使用者要求各數列獨立比較、不該相加時傳 stacked: false。",
   areaChartInputShape,
   async (args) => buildAreaChartResult(args)
 );

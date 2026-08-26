@@ -59,9 +59,23 @@ const cartesianCommonShape = {
  */
 export const lineChartInputShape = { ...cartesianCommonShape };
 
-export const barChartInputShape = { ...cartesianCommonShape };
+/**
+ * bar/area 專有的堆疊開關。
+ *
+ * 選填且不設 schema 層預設值：圖表定義 JSON 保持稀疏，LLM 沒傳就沒有這個欄位，
+ * 「哪種圖預設堆疊」的回退規則統一由前端的類型對照表決定。也因為選填欄位不會在
+ * JSON Schema 產生 `default`，各自的預設值必須寫進 tool 描述，LLM 才知道要顯式傳值。
+ *
+ * 折線圖不提供：堆疊折線容易被讀者誤讀成獨立值而非累加值。
+ */
+const stackedField = z
+  .boolean()
+  .optional()
+  .describe("是否把各數列堆疊起來；未提供時採該圖表類型的預設");
 
-export const areaChartInputShape = { ...cartesianCommonShape };
+export const barChartInputShape = { ...cartesianCommonShape, stacked: stackedField };
+
+export const areaChartInputShape = { ...cartesianCommonShape, stacked: stackedField };
 
 /**
  * strict：傳入未知欄位時直接被驗證擋下，而不是靜默忽略後畫出一張參數對不上的圖。

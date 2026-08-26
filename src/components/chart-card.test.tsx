@@ -140,6 +140,18 @@ describe("ChartCard", () => {
     const { container } = render(<ChartCard chart={{ ...multiSeries, type }} />);
     expect(container.querySelectorAll(seriesClass)).toHaveLength(2);
   });
+
+  // 區域圖預設堆疊，各層相鄰；過低的不透明度會讓區塊偏灰、層次不易分辨。
+  // 此值取自 recharts 堆疊區域圖範例的預設。
+  it("區域圖的填色不透明度為 0.6", () => {
+    const { container } = render(<ChartCard chart={{ ...multiSeries, type: "area" }} />);
+    const opacities = Array.from(container.querySelectorAll(".recharts-area-area")).map(
+      (el) => el.getAttribute("fill-opacity")
+    );
+
+    expect(opacities.length).toBeGreaterThan(0);
+    expect(opacities.every((o) => o === "0.6")).toBe(true);
+  });
 });
 
 describe("seriesColorAt", () => {

@@ -119,6 +119,37 @@ describe("笛卡兒圖轉換函式", () => {
   });
 });
 
+/**
+ * stacked 僅 bar/area 接受。定義 JSON 保持稀疏：沒傳就沒有這個欄位，
+ * 由前端的類型對照表回退到該圖表類型的預設。
+ */
+describe("stacked", () => {
+  const STACKED_BUILDERS = [
+    ["bar", buildBarChartResult],
+    ["area", buildAreaChartResult],
+  ] as const;
+
+  it.each(STACKED_BUILDERS)("%s 未傳 stacked 時定義 JSON 不含該欄位", (_type, build) => {
+    expect(chartOf(build(validInput))).not.toHaveProperty("stacked");
+  });
+
+  it.each(STACKED_BUILDERS)("%s 傳入 stacked: true 時如實帶入定義 JSON", (_type, build) => {
+    expect(chartOf(build({ ...validInput, stacked: true }))?.stacked).toBe(true);
+  });
+
+  it.each(STACKED_BUILDERS)("%s 傳入 stacked: false 時如實帶入定義 JSON", (_type, build) => {
+    expect(chartOf(build({ ...validInput, stacked: false }))?.stacked).toBe(false);
+  });
+
+  // 堆疊折線容易被讀者誤讀成累加值而非獨立值，故折線圖不提供此參數。
+  it("line 傳入 stacked 時回傳 isError 並指出該欄位", () => {
+    const result = buildLineChartResult({ ...validInput, stacked: true });
+
+    expect(result.isError).toBe(true);
+    expect(errorTextOf(result)).toContain("stacked");
+  });
+});
+
 const validPieInput = {
   title: "成本結構",
   data: [
