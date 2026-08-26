@@ -45,6 +45,26 @@ describe("charts MCP server 經真實 MCP client 呼叫", () => {
     }
   );
 
+  /**
+   * MCP SDK 在註冊層以 `z.object(shape)`（非 strict）先 parse 一次，
+   * 未知欄位在抵達我們的 handler 前就已被剝除，因此協定層看到的是
+   * 「靜默忽略」而非錯誤——這是 SDK 的行為，不是我們能在 schema 上改變的。
+   *
+   * 我們的 shape 仍維持 strict：那是這些 tool 的誠實契約，
+   * 也擋得住直接呼叫轉換函式的路徑（見 chart-tool.test.ts）。
+   */
+  it.each(["line_chart", "bar_chart", "area_chart"])(
+    "%s 的未知欄位由 SDK 於註冊層剝除，不進入圖表定義",
+    async (name) => {
+      const client = await connect();
+      const r = (await client.callTool({
+        name, arguments: { ...args, bogus: true },
+      })) as { isError?: boolean; content: { text: string }[] };
+      expect(r.isError).toBeFalsy();
+      expect(JSON.parse(r.content[0].text)).not.toHaveProperty("bogus");
+    }
+  );
+
   it.each(["bar_chart", "area_chart"])("%s 錯誤情境回傳 isError", async (name) => {
     const client = await connect();
     const r = (await client.callTool({
