@@ -1,5 +1,16 @@
 import type { ChartDefinition } from "@/lib/charts/chart-tool";
 
+/**
+ * 四種 token 分類，見 CONTEXT.md。三種輸入分類互斥（`in` 不含 cache 部分），
+ * 故一律分開呈現、不做總和 —— 四者計價不同，相加在財務意義上會誤導。
+ */
+export type Usage = {
+  in: number;
+  cache_c: number;
+  cache_r: number;
+  out: number;
+};
+
 /** `/api/chat` 的 NDJSON 串流協定：每行一個事件，前後端共用。 */
 export type ChatStreamEvent =
   /** 本次對話的 session id，串流一開始就送出（中斷時也已取得，可用於接續） */
@@ -12,6 +23,12 @@ export type ChatStreamEvent =
   | { type: "tool_use"; id: string; name: string }
   /** 該次工具呼叫結束；成功時純為結束訊號，失敗時 `message` 帶截斷後的簡短原因 */
   | { type: "tool_done"; id: string; ok: boolean; message?: string }
+  /**
+   * 本輪 `query()` 的 token 用量，跨各模型加總；排在 `done` 之前。
+   * 三種輸入分類互斥（`in` 不含 cache 部分），故不做總和。
+   * 僅在該輪成功完成時出現；中斷或失敗時拿不到用量，不送此事件。
+   */
+  | ({ type: "usage" } & Usage)
   /** 權威的完整內容（串流正常結束） */
   | { type: "done"; result: string; sessionId: string }
   /** 串流開始後才發生的失敗 */

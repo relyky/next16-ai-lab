@@ -77,6 +77,29 @@ async function drain(body: ReadableStream<Uint8Array>) {
   return events;
 }
 
+/** 補齊 ModelUsage 中本功能未使用的欄位，測試只需寫出四項 token 數。 */
+function modelUsage(partial: {
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadInputTokens?: number;
+  cacheCreationInputTokens?: number;
+}) {
+  return {
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadInputTokens: 0,
+    cacheCreationInputTokens: 0,
+    webSearchRequests: 0,
+    costUSD: 0,
+    contextWindow: 0,
+    maxOutputTokens: 0,
+    ...partial,
+  };
+}
+
+/** 事件流斷言用：以 modelUsage({}) 收尾的輪次會送出這個全零的 usage 事件。 */
+const zeroUsageEvent = { type: "usage", in: 0, cache_c: 0, cache_r: 0, out: 0 };
+
 afterEach(() => {
   queryMock.mockReset();
   vi.unstubAllEnvs();
@@ -264,6 +287,7 @@ describe("POST /api/chat", () => {
           is_error: false,
           result: "共 5 個專案。",
           session_id: "s-1",
+          modelUsage: { haiku: modelUsage({}) },
         };
       });
       const { POST } = await import("./route");
@@ -282,6 +306,7 @@ describe("POST /api/chat", () => {
         },
         { type: "tool_done", id: "t-1", ok: true },
         { type: "delta", text: "共 5 個專案。" },
+        zeroUsageEvent,
         { type: "done", result: "共 5 個專案。", sessionId: "s-1" },
       ]);
       // 工具參數（input 與其逐字增量）不得出現在任何事件裡。
@@ -332,6 +357,7 @@ describe("POST /api/chat", () => {
           is_error: false,
           result: "如圖所示。",
           session_id: "s-1",
+          modelUsage: { haiku: modelUsage({}) },
         };
       });
       const { POST } = await import("./route");
@@ -345,6 +371,7 @@ describe("POST /api/chat", () => {
         { type: "tool_use", id: "t-1", name: "mcp__charts__line_chart" },
         { type: "tool_done", id: "t-1", ok: true },
         { type: "chart", chart: line },
+        zeroUsageEvent,
         { type: "done", result: "如圖所示。", sessionId: "s-1" },
       ]);
     });
@@ -445,6 +472,7 @@ describe("POST /api/chat", () => {
       is_error: false,
       result: "好的。",
       session_id: "s-1",
+      modelUsage: { haiku: modelUsage({}) },
     };
 
     it("依序送出 tool_use 與 tool_done", async () => {
@@ -458,6 +486,7 @@ describe("POST /api/chat", () => {
         { type: "session", sessionId: "s-1" },
         { type: "tool_use", id: "t-1", name: "mcp__qadb__search_asvt_project_basic" },
         { type: "tool_done", id: "t-1", ok: true },
+        zeroUsageEvent,
         { type: "done", result: "好的。", sessionId: "s-1" },
       ]);
     });
@@ -615,6 +644,14 @@ describe("POST /api/chat", () => {
         is_error: false,
         result: "本季營收成長 12%。",
         session_id: "s-1",
+        modelUsage: {
+          haiku: modelUsage({
+            inputTokens: 3,
+            cacheCreationInputTokens: 11604,
+            cacheReadInputTokens: 0,
+            outputTokens: 442,
+          }),
+        },
       };
     });
     const { POST } = await import("./route");
@@ -627,8 +664,138 @@ describe("POST /api/chat", () => {
     expect(events).toEqual([
       { type: "session", sessionId: "s-1" },
       { type: "delta", text: "本季營收" },
+      { type: "usage", in: 3, cache_c: 11604, cache_r: 0, out: 442 },
       { type: "done", result: "本季營收成長 12%。", sessionId: "s-1" },
     ]);
+  });
+
+  describe("usage 事件", () => {
+    it("跨多個模型加總四項用量", async () => {
+      queryMock.mockImplementation(async function* () {
+        yield { type: "system", subtype: "init", session_id: "s-1" };
+        yield {
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          result: "好的。",
+          session_id: "s-1",
+          modelUsage: {
+            haiku: modelUsage({
+              inputTokens: 3,
+              cacheCreationInputTokens: 100,
+              cacheReadInputTokens: 20,
+              outputTokens: 40,
+            }),
+            sonnet: modelUsage({
+              inputTokens: 7,
+              cacheCreationInputTokens: 5,
+              cacheReadInputTokens: 80,
+              outputTokens: 2,
+            }),
+          },
+        };
+      });
+      const { POST } = await import("./route");
+
+      const events = await drain((await POST(chatRequest())).body!);
+
+      expect(events).toContainEqual({
+        type: "usage",
+        in: 10,
+        cache_c: 105,
+        cache_r: 100,
+        out: 42,
+      });
+    });
+
+    it("排在 done 之前送出", async () => {
+      queryMock.mockImplementation(async function* () {
+        yield { type: "system", subtype: "init", session_id: "s-1" };
+        yield {
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          result: "好的。",
+          session_id: "s-1",
+          modelUsage: { haiku: modelUsage({ outputTokens: 1 }) },
+        };
+      });
+      const { POST } = await import("./route");
+
+      const types = (await drain((await POST(chatRequest())).body!)).map(
+        (e) => e.type
+      );
+
+      expect(types).toContain("usage");
+      expect(types.indexOf("usage")).toBeLessThan(types.indexOf("done"));
+    });
+
+    it("中斷的輪次不送出 usage 事件", async () => {
+      // 刻意讓 query() 在中斷「之後」才吐出帶 modelUsage 的 result：
+      // 若實作漏了中斷檢查，用量就會外洩，此測試才咬得住。
+      let released!: () => void;
+      const abortSeen = new Promise<void>((resolve) => {
+        released = resolve;
+      });
+      queryMock.mockImplementation(async function* () {
+        yield { type: "system", subtype: "init", session_id: "s-1" };
+        yield {
+          type: "stream_event",
+          event: {
+            type: "content_block_delta",
+            delta: { type: "text_delta", text: "本季" },
+          },
+        };
+        await abortSeen;
+        yield {
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          result: "本季營收成長 12%。",
+          session_id: "s-1",
+          modelUsage: { haiku: modelUsage({ inputTokens: 3, outputTokens: 442 }) },
+        };
+      });
+      const { POST } = await import("./route");
+
+      const abort = new AbortController();
+      const res = await POST(chatRequest({ signal: abort.signal }));
+      const { events, reader } = await readUntil(res.body!, "delta");
+
+      // 中斷後才放行 result。續讀同一個 reader：中斷後串流不再有事件，
+      // 故此處應等到「無更多資料」而非讀到 usage。
+      abort.abort();
+      released();
+
+      const next = await Promise.race([
+        reader.read().then(() => "有事件" as const),
+        new Promise<"沒有更多事件">((resolve) =>
+          setTimeout(() => resolve("沒有更多事件"), 50)
+        ),
+      ]);
+      await reader.cancel();
+
+      expect(next).toBe("沒有更多事件");
+      expect(events.some((e) => e.type === "usage")).toBe(false);
+    });
+
+    it("失敗的輪次不送出 usage 事件", async () => {
+      queryMock.mockImplementation(async function* () {
+        yield { type: "system", subtype: "init", session_id: "s-1" };
+        yield {
+          type: "result",
+          subtype: "error_max_turns",
+          is_error: true,
+          session_id: "s-1",
+          modelUsage: { haiku: modelUsage({ outputTokens: 9 }) },
+        };
+      });
+      const { POST } = await import("./route");
+
+      const events = await drain((await POST(chatRequest())).body!);
+
+      expect(events.some((e) => e.type === "usage")).toBe(false);
+    });
   });
 
   it("串流一開始就送出 session 事件", async () => {

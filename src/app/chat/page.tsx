@@ -8,7 +8,7 @@ import { ToolUsageList, type ToolUsage } from "@/components/tool-usage-list";
 import { Card } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import type { ChartDefinition } from "@/lib/charts/chart-tool";
-import type { ChatStreamEvent } from "@/lib/chat-stream";
+import type { ChatStreamEvent, Usage } from "@/lib/chat-stream";
 
 type Message = {
   id: number;
@@ -65,10 +65,27 @@ function AssistantMessage({
   );
 }
 
+const ZERO_USAGE: Usage = { in: 0, cache_c: 0, cache_r: 0, out: 0 };
+
+/** 本輪 session 的累計用量；四項分開顯示，不做總和（理由見 Usage 型別）。 */
+function UsageLine({ usage }: { usage: Usage }) {
+  const format = (n: number) => n.toLocaleString();
+  return (
+    <p className="pt-2 text-xs text-muted-foreground">
+      {`累計消耗 in ${format(usage.in)} | cache_c ${format(usage.cache_c)}` +
+        ` | cache_r ${format(usage.cache_r)} | out ${format(usage.out)} tokens`}
+    </p>
+  );
+}
+
 export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  // 累加在前端做：後端每次請求各自呼叫 query()、維持無狀態，前端才是
+  // 「這一輪 session」的邊界持有者。null 代表尚無任何用量，不渲染該行。
+  // sessionId 變更（resume 有可能 fork）不歸零：使用者看到的是同一個對話。
+  const [usage, setUsage] = useState<Usage | null>(null);
   // 純顯示濾鏡：關閉期間歷程照常收集，重新打開後完整可見。刻意不做持久化。
   const [showToolUsages, setShowToolUsages] = useState(true);
   const abortRef = useRef<AbortController | null>(null);
@@ -171,16 +188,26 @@ export default function ChatPage() {
         } else if (event.type === "tool_done") {
           // 沒有對應的 tool_use 就無列可更新；後端已濾掉孤兒，此處僅為防禦。
           if (!toolUsages.some((u) => u.id === event.id)) return;
-          toolUsages = toolUsages.map((usage) =>
-            usage.id === event.id
+          toolUsages = toolUsages.map((u) =>
+            u.id === event.id
               ? {
-                  ...usage,
+                  ...u,
                   status: event.ok ? ("success" as const) : ("error" as const),
                   message: event.ok ? undefined : event.message,
                 }
-              : usage
+              : u
           );
           pushToolUsages();
+        } else if (event.type === "usage") {
+          setUsage((prev) => {
+            const base = prev ?? ZERO_USAGE;
+            return {
+              in: base.in + event.in,
+              cache_c: base.cache_c + event.cache_c,
+              cache_r: base.cache_r + event.cache_r,
+              out: base.out + event.out,
+            };
+          });
         } else if (event.type === "done") {
           setSessionId(event.sessionId);
           // 最終完整訊息為權威內容；若為空則保留已累積的增量。
@@ -264,11 +291,15 @@ export default function ChatPage() {
         )}
       </div>
 
-      <ChatInput
-        onSubmit={handleSubmit}
-        onAbort={() => abortRef.current?.abort()}
-        disabled={loading}
-      />
+      {/* 用量列與輸入列同屬一個 sticky 區塊，捲動時一起釘在底部。 */}
+      <div className="sticky bottom-0 border-t bg-background">
+        {usage && <UsageLine usage={usage} />}
+        <ChatInput
+          onSubmit={handleSubmit}
+          onAbort={() => abortRef.current?.abort()}
+          disabled={loading}
+        />
+      </div>
     </div>
   );
 }

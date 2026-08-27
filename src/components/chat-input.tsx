@@ -44,7 +44,8 @@ export function ChatInput({
   }
 
   return (
-    <div className="sticky bottom-0 flex items-end gap-2 border-t bg-background py-4">
+    // 釘底與背景由外層負責：用量列與輸入列同屬一個 sticky 區塊。
+    <div className="flex items-end gap-2 py-4">
       <Textarea
         ref={textareaRef}
         value={text}

@@ -126,6 +126,19 @@ export async function POST(request: Request) {
             // subtype 為 success 但 is_error 時，result 承載的是錯誤文字。
             send({ type: "error", error: message.result });
           } else {
+            // 用量取自 modelUsage 而非 usage：usage 只涵蓋主迴圈，會漏掉
+            // subagent 與 compaction 等內部呼叫，長對話時低報。SDK 型別註解
+            // 亦明指 modelUsage 才是 token 計量的正確欄位。
+            // 只涵蓋這一次 query()，非 session 累計；累加由前端負責。
+            const usage = { in: 0, cache_c: 0, cache_r: 0, out: 0 };
+            for (const model of Object.values(message.modelUsage)) {
+              usage.in += model.inputTokens;
+              usage.cache_c += model.cacheCreationInputTokens;
+              usage.cache_r += model.cacheReadInputTokens;
+              usage.out += model.outputTokens;
+            }
+            send({ type: "usage", ...usage });
+
             // session_id 以本次結果為準：resume 有可能 fork 出新的 session。
             send({
               type: "done",
