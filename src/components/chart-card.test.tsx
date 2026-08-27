@@ -224,8 +224,9 @@ describe("seriesColorAt", () => {
     expect(seriesColorAt({ key: "revenue", color: "#ff0000" }, 0)).toBe("#ff0000");
   });
 
-  it("未指定 color 時依序 fallback 到 --chart-1~--chart-5", () => {
-    const colors = [0, 1, 2, 3, 4].map((i) => seriesColorAt({ key: `s${i}` }, i));
+  // 色槽數與 MAX_SERIES 對齊，六組數列才不會有兩組撞色。
+  it("未指定 color 時依序 fallback 到 --chart-1~--chart-6", () => {
+    const colors = [0, 1, 2, 3, 4, 5].map((i) => seriesColorAt({ key: `s${i}` }, i));
 
     expect(colors).toEqual([
       "var(--chart-1)",
@@ -233,12 +234,13 @@ describe("seriesColorAt", () => {
       "var(--chart-3)",
       "var(--chart-4)",
       "var(--chart-5)",
+      "var(--chart-6)",
     ]);
   });
 
-  it("超過 5 組時循環回到 --chart-1", () => {
-    expect(seriesColorAt({ key: "s5" }, 5)).toBe("var(--chart-1)");
-    expect(seriesColorAt({ key: "s6" }, 6)).toBe("var(--chart-2)");
+  it("第 7 組才循環回到 --chart-1", () => {
+    expect(seriesColorAt({ key: "s6" }, 6)).toBe("var(--chart-1)");
+    expect(seriesColorAt({ key: "s7" }, 7)).toBe("var(--chart-2)");
   });
 });
 
