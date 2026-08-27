@@ -132,7 +132,7 @@
 </table>
 
 <h2>2. 訊息泡泡結構</h2>
-<p>兩種角色採不同的視覺語言：使用者為右側實心色塊，助手為左側白底卡片。助手卡片是容器，內部依串流事件動態長出三個可選區塊。</p>
+<p>兩種角色採不同的視覺語言：使用者為右側實心色塊，助手為左側白底卡片。助手的一則回應會長出三種產物——泡泡、圖表、提示——依串流事件動態出現，彼此<strong>並列為兄弟</strong>而非巢狀：圖表若放進泡泡內，會變成 <code>bg-card</code> 疊 <code>bg-card</code> 的雙層外框，內框沒有對比、只剩雜訊。</p>
 
 <figure>
 <svg viewBox="0 0 1120 470" role="img" aria-label="使用者與助手訊息泡泡結構">
@@ -148,57 +148,63 @@
 
   <!-- assistant -->
   <text x="20" y="152" font-size="14" font-weight="600">AssistantMessage</text>
-  <text x="20" y="172" font-size="12" fill="#6b6b6b">flex justify-start · Card p-0 · 有圖表 w-[90%]／純文字 max-w-[90%]</text>
+  <text x="20" y="172" font-size="12" fill="#6b6b6b">assistant-turn：flex flex-col items-start gap-2 · 泡泡 Card p-0 max-w-[90%] · 圖表欄 w-full</text>
 
   <rect x="20" y="186" width="1080" height="264" fill="none" stroke="#c8c8c8" stroke-dasharray="4 4"/>
-  <rect x="30" y="196" width="972" height="244" rx="14" fill="#ffffff" stroke="#1a1a1a"/>
+  <rect x="30" y="196" width="880" height="96" rx="14" fill="#ffffff" stroke="#1a1a1a"/>
 
-  <!-- block A -->
-  <rect x="30" y="196" width="972" height="56" fill="#f7f7f7"/>
-  <line x1="30" y1="252" x2="1002" y2="252" stroke="#c8c8c8"/>
+  <!-- block A（泡泡內） -->
+  <rect x="30" y="196" width="880" height="56" fill="#f7f7f7"/>
+  <line x1="30" y1="252" x2="910" y2="252" stroke="#c8c8c8"/>
   <circle cx="52" cy="214" r="6" fill="none" stroke="#6b6b6b"/>
   <path d="M49 214 l2.5 2.5 l4.5 -5" fill="none" stroke="#6b6b6b" stroke-width="1.6"/>
   <text x="66" y="218" font-size="11.5" font-family="ui-monospace, monospace" fill="#6b6b6b">mcp__charts__bar_chart</text>
   <circle cx="52" cy="236" r="6" fill="none" stroke="#6b6b6b" stroke-dasharray="6 3"/>
   <text x="66" y="240" font-size="11.5" font-family="ui-monospace, monospace" fill="#6b6b6b">mcp__charts__line_chart</text>
-  <text x="1012" y="222" font-size="11" fill="#0f5c8c">Ⓐ ToolUsageList</text>
-  <text x="1012" y="238" font-size="10.5" fill="#6b6b6b">border-b · px-4 py-2</text>
+  <text x="930" y="216" font-size="11" fill="#0f5c8c">Ⓐ ToolUsageList</text>
+  <text x="930" y="232" font-size="10.5" fill="#6b6b6b">border-b · px-4 py-2</text>
 
-  <!-- block B -->
+  <!-- block B（泡泡內） -->
   <text x="46" y="278" font-size="13">近四個季度營收持續成長，Q4 較 Q1 增加約 44%。</text>
-  <text x="1012" y="278" font-size="11" fill="#0f5c8c">Ⓑ 文字</text>
-  <text x="1012" y="294" font-size="10.5" fill="#6b6b6b">px-4 py-3 · text-sm</text>
+  <text x="930" y="274" font-size="11" fill="#0f5c8c">Ⓑ 文字</text>
+  <text x="930" y="290" font-size="10.5" fill="#6b6b6b">px-4 py-3 · text-sm</text>
 
-  <!-- block C -->
-  <rect x="46" y="294" width="940" height="132" rx="10" fill="#fbfbfb" stroke="#c8c8c8"/>
-  <text x="60" y="314" font-size="12" font-weight="600">各季度營收（萬元）</text>
-  <line x1="88" y1="330" x2="88" y2="406" stroke="#c8c8c8"/>
-  <line x1="88" y1="406" x2="960" y2="406" stroke="#c8c8c8"/>
-  <line x1="88" y1="348" x2="960" y2="348" stroke="#e4e4e4" stroke-dasharray="3 3"/>
-  <line x1="88" y1="377" x2="960" y2="377" stroke="#e4e4e4" stroke-dasharray="3 3"/>
-  <text x="62" y="352" font-size="9.5" fill="#9a9a9a">4M</text>
-  <text x="62" y="381" font-size="9.5" fill="#9a9a9a">2M</text>
-  <rect x="180" y="372" width="46" height="34" fill="#dcdcdc"/>
-  <rect x="380" y="362" width="46" height="44" fill="#c9c9c9"/>
-  <rect x="580" y="356" width="46" height="50" fill="#b4b4b4"/>
-  <rect x="780" y="336" width="46" height="70" fill="#5B1220"/>
-  <text x="192" y="420" font-size="10" fill="#6b6b6b">Q1</text>
-  <text x="392" y="420" font-size="10" fill="#6b6b6b">Q2</text>
-  <text x="592" y="420" font-size="10" fill="#6b6b6b">Q3</text>
-  <text x="792" y="420" font-size="10" fill="#6b6b6b">Q4</text>
-  <text x="1012" y="326" font-size="11" fill="#0f5c8c">Ⓒ ChartCard[]</text>
-  <text x="1012" y="342" font-size="10.5" fill="#6b6b6b">px-4 pb-4 · gap-3</text>
-  <text x="1012" y="358" font-size="10.5" fill="#6b6b6b">高度固定 240px</text>
+  <!-- block C（泡泡外，與泡泡並列的兄弟；左緣對齊、寬度撐滿） -->
+  <rect x="30" y="304" width="972" height="112" rx="10" fill="#fbfbfb" stroke="#c8c8c8"/>
+  <text x="44" y="324" font-size="12" font-weight="600">各季度營收（萬元）</text>
+  <line x1="72" y1="336" x2="72" y2="398" stroke="#c8c8c8"/>
+  <line x1="72" y1="398" x2="976" y2="398" stroke="#c8c8c8"/>
+  <line x1="72" y1="350" x2="976" y2="350" stroke="#e4e4e4" stroke-dasharray="3 3"/>
+  <line x1="72" y1="374" x2="976" y2="374" stroke="#e4e4e4" stroke-dasharray="3 3"/>
+  <text x="46" y="354" font-size="9.5" fill="#9a9a9a">4M</text>
+  <text x="46" y="378" font-size="9.5" fill="#9a9a9a">2M</text>
+  <rect x="170" y="370" width="46" height="28" fill="#dcdcdc"/>
+  <rect x="390" y="362" width="46" height="36" fill="#c9c9c9"/>
+  <rect x="610" y="356" width="46" height="42" fill="#b4b4b4"/>
+  <rect x="830" y="340" width="46" height="58" fill="#5B1220"/>
+  <text x="182" y="412" font-size="10" fill="#6b6b6b">Q1</text>
+  <text x="402" y="412" font-size="10" fill="#6b6b6b">Q2</text>
+  <text x="622" y="412" font-size="10" fill="#6b6b6b">Q3</text>
+  <text x="842" y="412" font-size="10" fill="#6b6b6b">Q4</text>
+  <text x="1012" y="330" font-size="11" fill="#0f5c8c">Ⓒ ChartCard[]</text>
+  <text x="1012" y="346" font-size="10.5" fill="#6b6b6b">w-full · gap-3</text>
+  <text x="1012" y="362" font-size="10.5" fill="#6b6b6b">高度固定 240px</text>
+
+  <!-- block D（泡泡外，排在最後） -->
+  <text x="30" y="436" font-size="11.5" fill="#6b6b6b">（已中斷）</text>
+  <text x="1012" y="436" font-size="11" fill="#0f5c8c">Ⓓ 提示</text>
 </svg>
-<figcaption>助手卡片三區塊由上而下：工具歷程 → 文字 → 圖表；每一塊皆可缺席。</figcaption>
+<figcaption>一則助手回應由上而下：泡泡（Ⓐ 工具歷程 → Ⓑ 文字）→ Ⓒ 圖表 → Ⓓ 提示；每一塊皆可缺席。Ⓒ 與 Ⓓ 在泡泡<strong>之外</strong>，與泡泡同為 <code>assistant-turn</code> 的子項——各自只有一層外框。</figcaption>
 </figure>
 
 <h3>區塊出現規則</h3>
 <table>
   <tr><th>區塊</th><th>出現條件</th><th>設計理由</th></tr>
+  <tr><td>泡泡本身</td><td><code>toolUsages?.length || text</code></td><td>圖表可能比文字先到，此時泡泡尚無任何內容——不留一個只有外框的空卡片</td></tr>
   <tr><td>Ⓐ ToolUsageList</td><td><code>toolUsages?.length</code> 且開關為開</td><td>排在文字之前，反映「先呼叫工具、再依結果作答」的實際流程</td></tr>
-  <tr><td>Ⓑ 文字</td><td><code>text</code> 非空</td><td>圖表可能比文字先到；文字尚無內容時不留空白區塊</td></tr>
-  <tr><td>Ⓒ ChartCard[]</td><td><code>charts?.length</code></td><td>依產生順序排列；有圖表時卡片改為 <code>w-[90%]</code> 讓圖表有可讀尺寸</td></tr>
+  <tr><td>Ⓑ 文字</td><td><code>text</code> 非空</td><td>文字尚無內容時不留空白區塊</td></tr>
+  <tr><td>Ⓒ ChartCard[]</td><td><code>charts?.length</code></td><td>依產生順序排列；已移出泡泡與其並列，各自保有單層外框。圖表欄取 <code>w-full</code>——<code>ResponsiveContainer</code> 量的是父層實際寬度，<code>items-start</code> 下若不撐滿就量不到寬度</td></tr>
+  <tr><td>Ⓓ 提示</td><td><code>notice</code> 非空</td><td>排在所有內容之後：使用者要讀完已浮現的內容才看到「已中斷」。不在泡泡內，故未閉合的程式碼圍欄不可能把它吞進程式碼區塊</td></tr>
 </table>
 
 <h2>3. 工具歷程列狀態</h2>

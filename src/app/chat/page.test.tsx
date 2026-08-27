@@ -81,8 +81,10 @@ async function ask(question: string) {
  * 它們的斷言維持原本的 `screen.getByText`。
  */
 function assistantBubbles() {
+  // 一則回應的產物（泡泡、圖表、提示）現在是並列的兄弟，「這則回覆」的邊界
+  // 由 assistant-turn 表達，故一律以 turn 為單位取用，而非泡泡本身。
   return Array.from(
-    document.querySelectorAll<HTMLElement>('[data-slot="assistant-message"]')
+    document.querySelectorAll<HTMLElement>('[data-slot="assistant-turn"]')
   );
 }
 
@@ -121,12 +123,12 @@ function assistantTextElement(bubble: HTMLElement, text: string) {
   return hits.at(-1)!;
 }
 
-/** 泡泡中的提示元素（中斷／失敗），沒有則為 null。 */
+/** 該則回應的提示元素（中斷／失敗），沒有則為 null。 */
 function assistantNotice(bubble: HTMLElement) {
   return bubble.querySelector('[data-slot="assistant-notice"]');
 }
 
-/** 泡泡中的 markdown 內容區塊——回覆內容的邊界，提示不該落在裡面。 */
+/** 該則回應的 markdown 內容區塊——回覆內容的邊界，提示不該落在裡面。 */
 function assistantBody(bubble: HTMLElement) {
   return bubble.querySelector<HTMLElement>('[data-slot="assistant-markdown"]');
 }
@@ -160,7 +162,7 @@ const chartEvent = (type: "line" | "bar" | "area", title: string) => ({
 });
 
 describe("Chat page 圖表渲染", () => {
-  it("收到 chart 事件時，在回應泡泡中渲染圖表卡片", async () => {
+  it("收到 chart 事件時，在該則回應中渲染圖表卡片", async () => {
     stubFetch(async () =>
       ndjsonResponse(
         { type: "delta", text: "我畫給你看。" },
@@ -219,12 +221,18 @@ describe("Chat page 圖表渲染", () => {
     await ask("第二個問題");
     await findAssistantMessage("第二則。");
 
-    const bubbles = container.querySelectorAll('[data-slot="assistant-message"]');
-    expect(bubbles).toHaveLength(2);
-    expect(bubbles[0].querySelectorAll('[data-slot="chart-card"]')).toHaveLength(1);
-    expect(bubbles[1].querySelectorAll('[data-slot="chart-card"]')).toHaveLength(1);
-    expect(bubbles[0].textContent).toContain("第一張");
-    expect(bubbles[1].textContent).toContain("第二張");
+    // 圖表已移出泡泡、與泡泡並列；「哪張圖屬於哪一則」的邊界改由
+    // assistant-turn 表達——那正是這個測試要守的不變量。
+    const turns = container.querySelectorAll('[data-slot="assistant-turn"]');
+    expect(turns).toHaveLength(2);
+    expect(turns[0].querySelectorAll('[data-slot="chart-card"]')).toHaveLength(1);
+    expect(turns[1].querySelectorAll('[data-slot="chart-card"]')).toHaveLength(1);
+    expect(turns[0].textContent).toContain("第一張");
+    expect(turns[1].textContent).toContain("第二張");
+    // 回覆文字也釘在同一則：巢狀時這層綁定是免費的，並列後要自己斷言，
+    // 否則「圖表全跑到第一則、文字全跑到第二則」仍會讓上面的計數過關。
+    expect(turns[0].textContent).toContain("第一則。");
+    expect(turns[1].textContent).toContain("第二則。");
   });
 });
 
@@ -784,12 +792,13 @@ describe("Chat page 提示訊息", () => {
     render(<ChatPage />);
     await ask("這季營收如何？");
 
-    const bubble = await findAssistantMessage(/連線中斷/);
-    const notice = assistantNotice(bubble)!;
+    const turn = await findAssistantMessage(/連線中斷/);
+    const notice = assistantNotice(turn)!;
     expect(notice).not.toBeNull();
     expect(notice.textContent).toContain("連線中斷");
-    // 回覆內容為空，泡泡裡就只剩提示。
-    expect(bubble.textContent).toBe(notice.textContent);
+    // 回覆內容為空，這一輪連泡泡都不該渲染——不留一個只有外框的空卡片。
+    expect(turn.querySelector('[data-slot="assistant-message"]')).toBeNull();
+    expect(turn.textContent).toBe(notice.textContent);
   });
 
   it("中斷時工具歷程仍收成終態，提示不影響工具列", async () => {
