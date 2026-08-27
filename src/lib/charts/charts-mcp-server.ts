@@ -24,7 +24,8 @@ import {
 
 /** 三個笛卡兒圖 tool 共通的用法說明；各自的差異寫在自己的描述裡。 */
 const SHARED_USAGE =
-  "xKey 指定作為 X 軸的欄位（字串類別軸），series 指定要畫的數值欄位。";
+  "xKey 指定作為 X 軸的欄位（字串類別軸），series 指定要畫的數值欄位。" +
+  "配色以每組數列一色：可於 series[].color 傳 hex 色碼指定；未提供時前端套用預設配色。";
 
 export const lineChartTool = tool(
   "line_chart",
@@ -59,7 +60,9 @@ export const pieChartTool = tool(
   "pie_chart",
   "把查到的資料轉成餅圖定義，適合呈現各項目佔整體的組成比例。" +
     "nameKey 指定作為扇形類別名稱的欄位，valueKey 指定作為扇形數值的欄位（須為非負數值）。" +
-    "餅圖只有單一數列，不接受 xKey 或 series。",
+    "餅圖只有單一數列，不接受 xKey 或 series。" +
+    "配色以每個扇形一色：在 data 內另備一個 hex 色碼欄位並以 colorKey 指向它；" +
+    "未提供 colorKey（或某列無值）時前端套用預設配色。",
   pieChartInputShape,
   async (args) => buildPieChartResult(args)
 );

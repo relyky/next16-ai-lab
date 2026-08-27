@@ -256,19 +256,51 @@ const pieChart: ChartDefinition = {
   valueKey: "amount",
 };
 
+/** 各扇形的實際著色點；餅圖的顏色測試都由此讀取。 */
+function sectorFillsOf(container: HTMLElement) {
+  return Array.from(
+    container.querySelectorAll(".recharts-pie-sector path.recharts-sector")
+  ).map((el) => el.getAttribute("fill"));
+}
+
 describe("ChartCard 餅圖", () => {
   it("依資料筆數渲染對應數量的扇形", () => {
     const { container } = render(<ChartCard chart={pieChart} />);
     expect(container.querySelectorAll(".recharts-pie-sector")).toHaveLength(3);
   });
 
-  it("逐扇形循環套用預設配色", () => {
+  it("未指定 colorKey 時逐扇形循環套用預設配色", () => {
     const { container } = render(<ChartCard chart={pieChart} />);
-    const fills = Array.from(
-      container.querySelectorAll(".recharts-pie-sector path.recharts-sector")
-    ).map((el) => el.getAttribute("fill"));
 
-    expect(fills).toEqual(["var(--chart-1)", "var(--chart-2)", "var(--chart-3)"]);
+    expect(sectorFillsOf(container)).toEqual([
+      "var(--chart-1)",
+      "var(--chart-2)",
+      "var(--chart-3)",
+    ]);
+  });
+
+  // 指定色勝出、未指定的列回退預設配色——回退取的是該扇形自己的序號，
+  // 而非「第幾個未指定」，兩者在混合案例才分得出來。
+  it("指定 colorKey 時該欄位的色碼勝出，缺值的列回退預設配色", () => {
+    const { container } = render(
+      <ChartCard
+        chart={{
+          ...pieChart,
+          data: [
+            { item: "原料", amount: 120, tone: "#ff0000" },
+            { item: "人力", amount: 80 },
+            { item: "行銷", amount: 40, tone: "#00ff00" },
+          ],
+          colorKey: "tone",
+        }}
+      />
+    );
+
+    expect(sectorFillsOf(container)).toEqual([
+      "#ff0000",
+      "var(--chart-2)",
+      "#00ff00",
+    ]);
   });
 
   // 圖例內容在 jsdom 下需等 recharts 的 payload 就緒，此處只驗容器存在；
