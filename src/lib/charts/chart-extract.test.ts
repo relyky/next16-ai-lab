@@ -89,6 +89,26 @@ describe("createChartExtractor", () => {
     expect(extract(toolResult("t-1", JSON.stringify(pie)))).toEqual([pie]);
   });
 
+  // colorKey 帶的是 hex 字串，data 欄位的值型別本來就接受字串；
+  // round-trip 通過即證明擷取端不需為此放寬 schema。
+  it("取出帶 colorKey 的餅圖定義", () => {
+    const extract = createChartExtractor();
+    const pie = {
+      type: "pie" as const,
+      data: [
+        { item: "原料", amount: 120, tone: "#ff0000" },
+        { item: "人力", amount: 80, tone: "#00ff00" },
+      ],
+      nameKey: "item",
+      valueKey: "amount",
+      colorKey: "tone",
+    };
+
+    extract(toolUse("t-1", "mcp__charts__pie_chart"));
+
+    expect(extract(toolResult("t-1", JSON.stringify(pie)))).toEqual([pie]);
+  });
+
   it("餅圖內容不符 schema 時不產生圖表", () => {
     const extract = createChartExtractor();
 

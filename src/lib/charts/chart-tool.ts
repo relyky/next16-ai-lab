@@ -101,6 +101,18 @@ export const pieChartInputShape = {
     .string()
     .min(1)
     .describe("作為扇形數值的欄位，須存在於 data 中且各列皆為非負數值"),
+  /**
+   * 餅圖的顏色層級是「每個扇形一色」，裝不進笛卡兒圖的「每組數列一色」結構，
+   * 故不沿用 series；改為貼齊餅圖既有的 `*Key` 慣例——指向 data 內的欄位。
+   */
+  colorKey: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      "作為扇形顏色的欄位，須存在於 data 中且各列皆為 hex 色碼（如 #4f46e5）；" +
+        "未提供時由前端套用預設配色"
+    ),
 };
 
 /**
@@ -292,7 +304,7 @@ export function buildPieChartResult(input: unknown): ChartToolResult {
   const parsed = parseOrError(pieChartInputSchema, input);
   if (!parsed.ok) return parsed.error;
 
-  const { data, nameKey, valueKey } = parsed.value;
+  const { data, nameKey, valueKey, colorKey } = parsed.value;
   const availableKeys = Object.keys(data[0]);
 
   const missingNameKey = assertKeyExists("nameKey", nameKey, availableKeys);
@@ -316,6 +328,29 @@ export function buildPieChartResult(input: unknown): ChartToolResult {
         `data 第 ${index + 1} 列的 ${valueKey} 值 ${value} 為負數；` +
           "餅圖的數值欄位每一列都必須是非負數值"
       );
+    }
+  }
+
+  if (colorKey !== undefined) {
+    // nameKey / valueKey 每一列都必須有值，看 data[0] 就夠；colorKey 不同——
+    // 缺值的列回退預設配色是刻意支援的，第 1 列剛好沒有色碼欄位是其中最自然的
+    // 寫法之一，故存在性改以全列的欄位聯集判定，否則會被誤判為欄位不存在。
+    const colorCandidateKeys = [...new Set(data.flatMap((row) => Object.keys(row)))];
+    const missingColorKey = assertKeyExists("colorKey", colorKey, colorCandidateKeys);
+    if (missingColorKey) return missingColorKey;
+
+    // 色碼格式與數列顏色同一套規則；data 欄位的型別允許任意字串，
+    // 故與數值欄位一樣只能在執行期逐列比對。
+    for (const [index, row] of data.entries()) {
+      const color = row[colorKey];
+      // 缺值的列回退預設配色，是刻意允許的混合案例，不視為違規。
+      if (color === undefined) continue;
+      if (typeof color !== "string" || !HEX_COLOR.test(color)) {
+        return toolError(
+          `data 第 ${index + 1} 列的 ${colorKey} 值 ${JSON.stringify(color)} 不是 hex 色碼；` +
+            "餅圖的顏色欄位每一列都必須是 hex 格式（如 #4f46e5）"
+        );
+      }
     }
   }
 

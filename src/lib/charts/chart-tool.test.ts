@@ -245,6 +245,62 @@ describe("buildPieChartResult", () => {
     expect(message).toContain("3");
   });
 
+  // colorKey 與 nameKey / valueKey 同層級：都是「指向 data 內某欄位」。
+  it("colorKey 指向的欄位存在且各列皆為 hex 時保留於圖表定義中", () => {
+    const input = {
+      ...validPieInput,
+      data: [
+        { item: "原料", amount: 120, tone: "#ff0000" },
+        { item: "人力", amount: 80, tone: "#0f0" },
+      ],
+      colorKey: "tone",
+    };
+    const result = buildPieChartResult(input);
+
+    expect(result.isError).toBeFalsy();
+    expect(chartOf(result)).toEqual({ type: "pie", ...input });
+  });
+
+  it("colorKey 未提供時不出現在圖表定義中", () => {
+    expect(chartOf(buildPieChartResult(validPieInput))).not.toHaveProperty("colorKey");
+  });
+
+  it("colorKey 不存在於 data 時回傳 isError 並附上可用欄位", () => {
+    const result = buildPieChartResult({ ...validPieInput, colorKey: "tone" });
+
+    expect(result.isError).toBe(true);
+    const message = errorTextOf(result);
+    expect(message).toContain("tone");
+    expect(message).toContain("item");
+    expect(message).toContain("amount");
+  });
+
+  it("colorKey 的值非 hex 格式時回傳 isError 並指出違規列", () => {
+    const data = [
+      { item: "原料", amount: 120, tone: "#ff0000" },
+      { item: "人力", amount: 80, tone: "紅色" },
+    ];
+    const result = buildPieChartResult({ ...validPieInput, data, colorKey: "tone" });
+
+    expect(result.isError).toBe(true);
+    const message = errorTextOf(result);
+    expect(message).toContain("tone");
+    // 指出是第 2 列（1-based），與既有的負值／非數值訊息風格一致。
+    expect(message).toContain("2");
+  });
+
+  // 缺值的列回退預設配色是本功能刻意支援的混合案例，
+  // 「第 1 列剛好沒有色碼欄位」是其中最自然的寫法之一，不該被誤判為欄位不存在。
+  it("colorKey 只出現在後續列時仍視為存在", () => {
+    const data = [
+      { item: "原料", amount: 120 },
+      { item: "人力", amount: 80, tone: "#00ff00" },
+    ];
+    const result = buildPieChartResult({ ...validPieInput, data, colorKey: "tone" });
+
+    expect(result.isError).toBeFalsy();
+  });
+
   it("零與正數皆為合法值", () => {
     const data = [
       { item: "原料", amount: 0 },

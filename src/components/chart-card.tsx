@@ -39,6 +39,7 @@ const FALLBACK_COLORS = [
   "var(--chart-3)",
   "var(--chart-4)",
   "var(--chart-5)",
+  "var(--chart-6)",
 ];
 
 /** 依序循環套用預設配色。 */
@@ -173,13 +174,28 @@ function CartesianChartView({ chart }: { chart: CartesianChartDefinition }) {
 }
 
 /**
+ * 餅圖的扇形顏色：`colorKey` 指到的欄位有值時勝出，否則回退預設配色。
+ *
+ * 回退取的是該扇形自己的序號而非「第幾個未指定」，
+ * 混合案例中每個扇形的預設色才不會隨前面幾列有沒有指定色而漂移。
+ */
+function sectorColorAt(
+  row: Record<string, string | number>,
+  index: number,
+  colorKey: string | undefined
+) {
+  const color = colorKey === undefined ? undefined : row[colorKey];
+  return typeof color === "string" ? color : fallbackColorAt(index);
+}
+
+/**
  * 餅圖（單一數列 × 多類別）：無軸線與格線，扇形角度即為佔比。
  *
- * 配色一律由前端依扇形序號循環套用預設配色——資料筆數由 LLM 決定，
- * 要求它逐扇形配色既囉嗦又易出錯。
+ * 顏色的層級是「每個扇形一色」，裝不進笛卡兒圖的數列結構，
+ * 故由 `colorKey` 指向 data 內的色碼欄位；未指定時回退預設配色。
  */
 function PieChartView({ chart }: { chart: PieChartDefinition }) {
-  const { data, nameKey, valueKey } = chart;
+  const { data, nameKey, valueKey, colorKey } = chart;
 
   return (
     <PieChart>
@@ -193,7 +209,10 @@ function PieChartView({ chart }: { chart: PieChartDefinition }) {
         isAnimationActive={false}
       >
         {data.map((row, index) => (
-          <Cell key={`${row[nameKey]}-${index}`} fill={fallbackColorAt(index)} />
+          <Cell
+            key={`${row[nameKey]}-${index}`}
+            fill={sectorColorAt(row, index, colorKey)}
+          />
         ))}
       </Pie>
     </PieChart>

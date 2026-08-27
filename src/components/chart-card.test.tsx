@@ -224,8 +224,9 @@ describe("seriesColorAt", () => {
     expect(seriesColorAt({ key: "revenue", color: "#ff0000" }, 0)).toBe("#ff0000");
   });
 
-  it("未指定 color 時依序 fallback 到 --chart-1~--chart-5", () => {
-    const colors = [0, 1, 2, 3, 4].map((i) => seriesColorAt({ key: `s${i}` }, i));
+  // 色槽數與 MAX_SERIES 對齊，六組數列才不會有兩組撞色。
+  it("未指定 color 時依序 fallback 到 --chart-1~--chart-6", () => {
+    const colors = [0, 1, 2, 3, 4, 5].map((i) => seriesColorAt({ key: `s${i}` }, i));
 
     expect(colors).toEqual([
       "var(--chart-1)",
@@ -233,12 +234,13 @@ describe("seriesColorAt", () => {
       "var(--chart-3)",
       "var(--chart-4)",
       "var(--chart-5)",
+      "var(--chart-6)",
     ]);
   });
 
-  it("超過 5 組時循環回到 --chart-1", () => {
-    expect(seriesColorAt({ key: "s5" }, 5)).toBe("var(--chart-1)");
-    expect(seriesColorAt({ key: "s6" }, 6)).toBe("var(--chart-2)");
+  it("第 7 組才循環回到 --chart-1", () => {
+    expect(seriesColorAt({ key: "s6" }, 6)).toBe("var(--chart-1)");
+    expect(seriesColorAt({ key: "s7" }, 7)).toBe("var(--chart-2)");
   });
 });
 
@@ -254,19 +256,75 @@ const pieChart: ChartDefinition = {
   valueKey: "amount",
 };
 
+/** 各扇形的實際著色點；餅圖的顏色測試都由此讀取。 */
+function sectorFillsOf(container: HTMLElement) {
+  return Array.from(
+    container.querySelectorAll(".recharts-pie-sector path.recharts-sector")
+  ).map((el) => el.getAttribute("fill"));
+}
+
 describe("ChartCard 餅圖", () => {
   it("依資料筆數渲染對應數量的扇形", () => {
     const { container } = render(<ChartCard chart={pieChart} />);
     expect(container.querySelectorAll(".recharts-pie-sector")).toHaveLength(3);
   });
 
-  it("逐扇形循環套用預設配色", () => {
+  it("未指定 colorKey 時逐扇形循環套用預設配色", () => {
     const { container } = render(<ChartCard chart={pieChart} />);
-    const fills = Array.from(
-      container.querySelectorAll(".recharts-pie-sector path.recharts-sector")
-    ).map((el) => el.getAttribute("fill"));
 
-    expect(fills).toEqual(["var(--chart-1)", "var(--chart-2)", "var(--chart-3)"]);
+    expect(sectorFillsOf(container)).toEqual([
+      "var(--chart-1)",
+      "var(--chart-2)",
+      "var(--chart-3)",
+    ]);
+  });
+
+  // 指定色勝出、未指定的列回退預設配色——回退取的是該扇形自己的序號，
+  // 而非「第幾個未指定」，兩者在混合案例才分得出來。
+  it("指定 colorKey 時該欄位的色碼勝出，缺值的列回退預設配色", () => {
+    const { container } = render(
+      <ChartCard
+        chart={{
+          ...pieChart,
+          data: [
+            { item: "原料", amount: 120, tone: "#ff0000" },
+            { item: "人力", amount: 80 },
+            { item: "行銷", amount: 40, tone: "#00ff00" },
+          ],
+          colorKey: "tone",
+        }}
+      />
+    );
+
+    expect(sectorFillsOf(container)).toEqual([
+      "#ff0000",
+      "var(--chart-2)",
+      "#00ff00",
+    ]);
+  });
+
+  // 後端已允許「colorKey 只出現在後續列」，前端必須同樣容得下這種資料，
+  // 否則兩端對同一份合法定義的解讀會分歧。
+  it("colorKey 指到的欄位在第 1 列缺值時，該扇形回退預設配色", () => {
+    const { container } = render(
+      <ChartCard
+        chart={{
+          ...pieChart,
+          data: [
+            { item: "原料", amount: 120 },
+            { item: "人力", amount: 80, tone: "#00ff00" },
+            { item: "行銷", amount: 40 },
+          ],
+          colorKey: "tone",
+        }}
+      />
+    );
+
+    expect(sectorFillsOf(container)).toEqual([
+      "var(--chart-1)",
+      "#00ff00",
+      "var(--chart-3)",
+    ]);
   });
 
   // 圖例內容在 jsdom 下需等 recharts 的 payload 就緒，此處只驗容器存在；
