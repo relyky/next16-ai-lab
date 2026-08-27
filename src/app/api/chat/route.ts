@@ -120,6 +120,20 @@ export async function POST(request: Request) {
 
           if (message.type !== "result") continue;
 
+          // 用量取自 modelUsage 而非 usage：後者只涵蓋主迴圈，會漏掉
+          // subagent 與 compaction 等內部呼叫而低報。只涵蓋這一次 query()，
+          // 非 session 累計；累加由前端負責。
+          // 不分成敗都送：失敗輪次的 token 一樣真的燒掉了。且必須排在下面的
+          // error 之前 —— 前端一收到 error 就中止解析，排在後面會被漏接。
+          const usage = { in: 0, cache_c: 0, cache_r: 0, out: 0 };
+          for (const model of Object.values(message.modelUsage)) {
+            usage.in += model.inputTokens;
+            usage.cache_c += model.cacheCreationInputTokens;
+            usage.cache_r += model.cacheReadInputTokens;
+            usage.out += model.outputTokens;
+          }
+          send({ type: "usage", ...usage });
+
           if (message.subtype !== "success") {
             send({ type: "error", error: `LLM 回應失敗（${message.subtype}）` });
           } else if (message.is_error) {

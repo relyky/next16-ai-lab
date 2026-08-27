@@ -626,3 +626,149 @@ describe("Chat page", () => {
     expect(screen.getByPlaceholderText(/輸入你的財務問題/)).toBeEnabled();
   });
 });
+
+describe("Chat page 用量累計", () => {
+  const usageEvent = (
+    partial: Partial<{
+      in: number;
+      cache_c: number;
+      cache_r: number;
+      out: number;
+    }>
+  ) => ({ type: "usage" as const, in: 0, cache_c: 0, cache_r: 0, out: 0, ...partial });
+
+  it("尚無任何用量時不渲染累計列", async () => {
+    render(<ChatPage />);
+
+    expect(screen.queryByText(/累計消耗/)).not.toBeInTheDocument();
+  });
+
+  it("完成一輪後顯示該輪用量，數字帶千分位", async () => {
+    stubFetch(async () =>
+      ndjsonResponse(
+        { type: "delta", text: "本季營收成長 12%。" },
+        usageEvent({ in: 3, cache_c: 11604, cache_r: 0, out: 442 }),
+        { type: "done", result: "本季營收成長 12%。", sessionId: "s-1" }
+      )
+    );
+
+    render(<ChatPage />);
+    await ask("這季營收如何？");
+
+    expect(
+      await screen.findByText(
+        "累計消耗 in 3 | cache_c 11,604 | cache_r 0 | out 442 tokens"
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("多輪的用量逐輪累加", async () => {
+    stubFetch(async () =>
+      ndjsonResponse(
+        usageEvent({ in: 3, cache_c: 100, cache_r: 20, out: 40 }),
+        { type: "done", result: "好的。", sessionId: "s-1" }
+      )
+    );
+
+    render(<ChatPage />);
+    await ask("第一問");
+    await screen.findByText(/累計消耗 in 3 /);
+
+    stubFetch(async () =>
+      ndjsonResponse(
+        usageEvent({ in: 7, cache_c: 5, cache_r: 80, out: 2 }),
+        { type: "done", result: "好的。", sessionId: "s-2" }
+      )
+    );
+    await ask("第二問");
+
+    expect(
+      await screen.findByText(
+        "累計消耗 in 10 | cache_c 105 | cache_r 100 | out 42 tokens"
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("sessionId 變更（fork）時不歸零", async () => {
+    stubFetch(async () =>
+      ndjsonResponse(
+        { type: "session", sessionId: "s-1" },
+        usageEvent({ out: 40 }),
+        { type: "done", result: "好的。", sessionId: "s-1" }
+      )
+    );
+
+    render(<ChatPage />);
+    await ask("第一問");
+    await screen.findByText(/out 40 tokens/);
+
+    // 第二輪 resume 後 fork 成新的 session id：使用者仍在同一個對話視窗。
+    stubFetch(async () =>
+      ndjsonResponse(
+        { type: "session", sessionId: "s-2-forked" },
+        usageEvent({ out: 2 }),
+        { type: "done", result: "好的。", sessionId: "s-2-forked" }
+      )
+    );
+    await ask("第二問");
+
+    expect(await screen.findByText(/out 42 tokens/)).toBeInTheDocument();
+  });
+
+  it("失敗的輪次一樣計入累計：那些 token 確實已消耗", async () => {
+    stubFetch(async () =>
+      ndjsonResponse(
+        usageEvent({ in: 3, cache_c: 100, cache_r: 20, out: 40 }),
+        { type: "done", result: "好的。", sessionId: "s-1" }
+      )
+    );
+
+    render(<ChatPage />);
+    await ask("第一問");
+    await screen.findByText(/out 40 tokens/);
+
+    // 第二輪 turn 用盡：後端先送 usage 再送 error。
+    stubFetch(async () =>
+      ndjsonResponse(
+        usageEvent({ in: 5, cache_c: 0, cache_r: 0, out: 9 }),
+        { type: "error", error: "LLM 回應失敗（error_max_turns）" }
+      )
+    );
+    await ask("第二問");
+    await screen.findByText(/error_max_turns/);
+
+    expect(
+      screen.getByText(
+        "累計消耗 in 8 | cache_c 100 | cache_r 20 | out 49 tokens"
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("中斷的輪次沒有 usage 事件，不影響既有累計", async () => {
+    stubFetch(async () =>
+      ndjsonResponse(
+        usageEvent({ in: 3, cache_c: 100, cache_r: 20, out: 40 }),
+        { type: "done", result: "好的。", sessionId: "s-1" }
+      )
+    );
+
+    render(<ChatPage />);
+    await ask("第一問");
+    const before = await screen.findByText(/累計消耗/);
+    const text = before.textContent;
+
+    const user = userEvent.setup();
+    stubFetch(async (_input, init) =>
+      abortableStreamResponse(
+        [new TextEncoder().encode(ndjson({ type: "delta", text: "本季" }))],
+        (init as RequestInit | undefined)?.signal ?? undefined
+      )
+    );
+    await ask("第二問");
+    await screen.findByText(/本季/);
+    await user.click(screen.getByRole("button", { name: "中斷" }));
+    await screen.findByText(/（已中斷）/);
+
+    expect(screen.getByText(/累計消耗/).textContent).toBe(text);
+  });
+});
