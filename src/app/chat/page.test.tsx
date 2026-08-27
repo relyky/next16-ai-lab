@@ -69,6 +69,78 @@ async function ask(question: string) {
   await user.click(screen.getByRole("button", { name: "送出" }));
 }
 
+/**
+ * 助手回覆文字的斷言輔助。
+ *
+ * 回覆文字會被包進區塊元素、也可能跨元素切分，`getByText` 這種
+ * 「單一元素的文字完全相符」的查詢無法表達要問的事。這裡一律改以
+ * 助手泡泡整體的文字內容做包含判斷：語意上要問的本來就是
+ * 「這則回覆裡有沒有講到這句話」，而不是「哪個元素剛好等於這句話」。
+ *
+ * 使用者泡泡、工具名稱、工具失敗原因、用量累計列都不走這條路徑，
+ * 它們的斷言維持原本的 `screen.getByText`。
+ */
+function assistantBubbles() {
+  return Array.from(
+    document.querySelectorAll<HTMLElement>('[data-slot="assistant-message"]')
+  );
+}
+
+function bubbleHasText(bubble: HTMLElement, text: string | RegExp) {
+  const content = bubble.textContent ?? "";
+  return typeof text === "string" ? content.includes(text) : text.test(content);
+}
+
+/** 目前畫面上是否有任何助手泡泡提到 `text`。 */
+function hasAssistantText(text: string | RegExp) {
+  return assistantBubbles().some((bubble) => bubbleHasText(bubble, text));
+}
+
+/** 取得提到 `text` 的助手泡泡；找不到即失敗。 */
+function getAssistantMessage(text: string | RegExp) {
+  const bubble = assistantBubbles().find((b) => bubbleHasText(b, text));
+  expect(bubble, `找不到提到 ${text} 的助手回覆`).toBeDefined();
+  return bubble!;
+}
+
+/** 等待某則助手泡泡提到 `text`，回傳該泡泡。 */
+async function findAssistantMessage(text: string | RegExp) {
+  await waitFor(() => expect(hasAssistantText(text)).toBe(true));
+  return getAssistantMessage(text);
+}
+
+/**
+ * 泡泡中提到 `text` 的最內層元素，供 DOM 順序比較使用。
+ * 文件順序中後代必定排在祖先之後，故最後一個命中者即最內層。
+ */
+function assistantTextElement(bubble: HTMLElement, text: string) {
+  const hits = Array.from(bubble.querySelectorAll("*")).filter((el) =>
+    el.textContent?.includes(text)
+  );
+  expect(hits.at(-1), `助手回覆中找不到 ${text}`).toBeDefined();
+  return hits.at(-1)!;
+}
+
+/** 泡泡中的提示元素（中斷／失敗），沒有則為 null。 */
+function assistantNotice(bubble: HTMLElement) {
+  return bubble.querySelector('[data-slot="assistant-notice"]');
+}
+
+/** 泡泡中的 markdown 內容區塊——回覆內容的邊界，提示不該落在裡面。 */
+function assistantBody(bubble: HTMLElement) {
+  return bubble.querySelector<HTMLElement>('[data-slot="assistant-markdown"]');
+}
+
+/**
+ * 該則助手回覆是否正在播放文字浮現動畫。
+ *
+ * 渲染器在動畫中的區塊上標記 `data-sd-animated`，非動畫時整個屬性不存在——
+ * 這是「有沒有在動畫」對外唯一可觀察的結果，不必去碰渲染器內部結構。
+ */
+function isAnimating(bubble: HTMLElement) {
+  return bubble.querySelector("[data-sd-animated]") !== null;
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -100,7 +172,7 @@ describe("Chat page 圖表渲染", () => {
     const { container } = render(<ChatPage />);
     await ask("月營收趨勢如何？");
 
-    expect(await screen.findByText("如圖所示。")).toBeInTheDocument();
+    expect(await findAssistantMessage("如圖所示。")).toBeInTheDocument();
     expect(screen.getByText("月營收趨勢")).toBeInTheDocument();
     expect(container.querySelectorAll('[data-slot="chart-card"]')).toHaveLength(1);
   });
@@ -117,7 +189,7 @@ describe("Chat page 圖表渲染", () => {
     const { container } = render(<ChatPage />);
     await ask("給我兩張圖");
 
-    expect(await screen.findByText("兩張圖如上。")).toBeInTheDocument();
+    expect(await findAssistantMessage("兩張圖如上。")).toBeInTheDocument();
     const titles = Array.from(
       container.querySelectorAll('[data-slot="chart-title"]')
     ).map((el) => el.textContent);
@@ -135,7 +207,7 @@ describe("Chat page 圖表渲染", () => {
 
     const { container } = render(<ChatPage />);
     await ask("第一個問題");
-    await screen.findByText("第一則。");
+    await findAssistantMessage("第一則。");
 
     fetchMock.mockImplementation(async () =>
       ndjsonResponse(chartEvent("bar", "第二張"), {
@@ -145,7 +217,7 @@ describe("Chat page 圖表渲染", () => {
       })
     );
     await ask("第二個問題");
-    await screen.findByText("第二則。");
+    await findAssistantMessage("第二則。");
 
     const bubbles = container.querySelectorAll('[data-slot="assistant-message"]');
     expect(bubbles).toHaveLength(2);
@@ -171,7 +243,7 @@ describe("Chat page 工具呼叫歷程", () => {
     const { container } = render(<ChatPage />);
     await ask("有幾個專案？");
 
-    expect(await screen.findByText("共 5 個專案。")).toBeInTheDocument();
+    expect(await findAssistantMessage("共 5 個專案。")).toBeInTheDocument();
     // 工具全名以原樣顯示，不做前綴剝除。
     expect(
       screen.getByText("mcp__qadb__search_asvt_project_basic")
@@ -219,7 +291,7 @@ describe("Chat page 工具呼叫歷程", () => {
     const { container } = render(<ChatPage />);
     await ask("查一下");
 
-    expect(await screen.findByText("抱歉，查不到。")).toBeInTheDocument();
+    expect(await findAssistantMessage("抱歉，查不到。")).toBeInTheDocument();
     expect(screen.getByText("連線逾時")).toBeInTheDocument();
     expect(
       container.querySelector('[data-slot="tool-usage"][data-status="error"]')
@@ -240,7 +312,7 @@ describe("Chat page 工具呼叫歷程", () => {
     const { container } = render(<ChatPage />);
     await ask("畫張圖");
 
-    await screen.findByText("如圖所示。");
+    await findAssistantMessage("如圖所示。");
     const names = Array.from(
       container.querySelectorAll('[data-slot="tool-usage"]')
     ).map((el) => el.querySelector("span")?.textContent);
@@ -259,11 +331,9 @@ describe("Chat page 工具呼叫歷程", () => {
     const { container } = render(<ChatPage />);
     await ask("有幾個專案？");
 
-    const bubble = (await screen.findByText("共 5 個專案。")).closest(
-      '[data-slot="assistant-message"]'
-    )!;
+    const bubble = await findAssistantMessage("共 5 個專案。");
     const list = bubble.querySelector('[data-slot="tool-usage-list"]')!;
-    const text = screen.getByText("共 5 個專案。");
+    const text = assistantTextElement(bubble, "共 5 個專案。");
     expect(
       list.compareDocumentPosition(text) & Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
@@ -282,14 +352,14 @@ describe("Chat page 工具呼叫歷程", () => {
     const user = userEvent.setup();
     const { container } = render(<ChatPage />);
     await ask("有幾個專案？");
-    await screen.findByText("共 5 個專案。");
+    await findAssistantMessage("共 5 個專案。");
 
     const toggle = screen.getByRole("switch", { name: /顯示處理過程/ });
     await user.click(toggle);
 
     expect(container.querySelector('[data-slot="tool-usage-list"]')).toBeNull();
     // 純顯示濾鏡：文字不受影響。
-    expect(screen.getByText("共 5 個專案。")).toBeInTheDocument();
+    expect(getAssistantMessage("共 5 個專案。")).toBeInTheDocument();
 
     await user.click(toggle);
 
@@ -327,7 +397,7 @@ describe("Chat page 工具呼叫歷程", () => {
     await screen.findByText("mcp__qadb__query");
     await user.click(await screen.findByRole("button", { name: "中斷" }));
 
-    await screen.findByText("（已中斷）");
+    await findAssistantMessage("（已中斷）");
     expect(
       container.querySelector('[data-slot="tool-usage"][data-status="running"]')
     ).toBeNull();
@@ -353,7 +423,7 @@ describe("Chat page 工具呼叫歷程", () => {
     const { container } = render(<ChatPage />);
     await ask("查一下");
 
-    expect(await screen.findByText("共 5 個專案。")).toBeInTheDocument();
+    expect(await findAssistantMessage("共 5 個專案。")).toBeInTheDocument();
     expect(
       container.querySelector('[data-slot="tool-usage"][data-status="running"]')
     ).toBeNull();
@@ -371,7 +441,7 @@ describe("Chat page 工具呼叫歷程", () => {
     const { container } = render(<ChatPage />);
     await ask("查一下");
 
-    expect(await screen.findByText(/連線中斷/)).toBeInTheDocument();
+    expect(await findAssistantMessage(/連線中斷/)).toBeInTheDocument();
     expect(
       container.querySelector('[data-slot="tool-usage"][data-status="running"]')
     ).toBeNull();
@@ -391,7 +461,7 @@ describe("Chat page 工具呼叫歷程", () => {
     const { container } = render(<ChatPage />);
     await ask("畫張圖");
 
-    await screen.findByText("如圖所示。");
+    await findAssistantMessage("如圖所示。");
     expect(container.querySelectorAll('[data-slot="chart-card"]')).toHaveLength(1);
     expect(screen.getByText("mcp__charts__line_chart")).toBeInTheDocument();
   });
@@ -410,7 +480,7 @@ describe("Chat page", () => {
     render(<ChatPage />);
     await ask("這季營收如何？");
 
-    expect(await screen.findByText("本季營收成長 12%。")).toBeInTheDocument();
+    expect(await findAssistantMessage("本季營收成長 12%。")).toBeInTheDocument();
     expect(screen.getByText("這季營收如何？")).toBeInTheDocument();
   });
 
@@ -432,7 +502,7 @@ describe("Chat page", () => {
     render(<ChatPage />);
     await ask("毛利率？");
 
-    expect(await screen.findByText("毛利率為 38%。")).toBeInTheDocument();
+    expect(await findAssistantMessage("毛利率為 38%。")).toBeInTheDocument();
   });
 
   it("done 的 result 為空時保留已累積的增量文字", async () => {
@@ -446,7 +516,7 @@ describe("Chat page", () => {
     render(<ChatPage />);
     await ask("這季營收如何？");
 
-    expect(await screen.findByText("本季營收")).toBeInTheDocument();
+    expect(await findAssistantMessage("本季營收")).toBeInTheDocument();
   });
 
   it("沒有 done 事件時保留已累積的增量文字", async () => {
@@ -455,7 +525,7 @@ describe("Chat page", () => {
     render(<ChatPage />);
     await ask("這季營收如何？");
 
-    expect(await screen.findByText("只有增量。")).toBeInTheDocument();
+    expect(await findAssistantMessage("只有增量。")).toBeInTheDocument();
   });
 
   it("第二次提問會帶上前一次回傳的 sessionId", async () => {
@@ -465,7 +535,7 @@ describe("Chat page", () => {
 
     render(<ChatPage />);
     await ask("第一個問題");
-    await screen.findByText("好的。");
+    await findAssistantMessage("好的。");
     await ask("追問");
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
@@ -498,12 +568,12 @@ describe("Chat page", () => {
     render(<ChatPage />);
     await ask("這季營收如何？");
 
-    await screen.findByText("本季營收");
+    await findAssistantMessage("本季營收");
     await user.click(await screen.findByRole("button", { name: "中斷" }));
 
-    expect(await screen.findByText(/本季營收/)).toBeInTheDocument();
-    expect(screen.getByText(/已中斷/)).toBeInTheDocument();
-    expect(screen.queryByText(/抱歉/)).not.toBeInTheDocument();
+    expect(await findAssistantMessage(/本季營收/)).toBeInTheDocument();
+    expect(getAssistantMessage(/已中斷/)).toBeInTheDocument();
+    expect(hasAssistantText(/抱歉/)).toBe(false);
     // fetch 確實被中止，瀏覽器不會再送來後續增量。
     expect(fetchMock.mock.calls[0][1].signal.aborted).toBe(true);
   });
@@ -528,10 +598,10 @@ describe("Chat page", () => {
     const user = userEvent.setup();
     render(<ChatPage />);
     await ask("這季營收如何？");
-    await screen.findByText("本季營收");
+    await findAssistantMessage("本季營收");
     await user.click(await screen.findByRole("button", { name: "中斷" }));
 
-    await screen.findByText(/已中斷/);
+    await findAssistantMessage(/已中斷/);
     await ask("追問");
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
@@ -550,7 +620,7 @@ describe("Chat page", () => {
     await ask("這季營收如何？");
 
     expect(
-      await screen.findByText(/LLM 回應失敗（error_during_execution）/)
+      await findAssistantMessage(/LLM 回應失敗（error_during_execution）/)
     ).toBeInTheDocument();
   });
 
@@ -566,7 +636,7 @@ describe("Chat page", () => {
     await ask("這季營收如何？");
 
     expect(
-      await screen.findByText(/LLM 回應失敗（error_during_execution）/)
+      await findAssistantMessage(/LLM 回應失敗（error_during_execution）/)
     ).toBeInTheDocument();
   });
 
@@ -581,8 +651,8 @@ describe("Chat page", () => {
     render(<ChatPage />);
     await ask("這季營收如何？");
 
-    expect(await screen.findByText(/本季營收/)).toBeInTheDocument();
-    expect(screen.getByText(/連線中斷/)).toBeInTheDocument();
+    expect(await findAssistantMessage(/本季營收/)).toBeInTheDocument();
+    expect(getAssistantMessage(/連線中斷/)).toBeInTheDocument();
   });
 
   it("回應 body 沒有任何事件時顯示錯誤，不會靜默無反應", async () => {
@@ -591,7 +661,7 @@ describe("Chat page", () => {
     render(<ChatPage />);
     await ask("這季營收如何？");
 
-    expect(await screen.findByText(/回應格式錯誤/)).toBeInTheDocument();
+    expect(await findAssistantMessage(/回應格式錯誤/)).toBeInTheDocument();
   });
 
   it("只收到 session 事件就斷線時顯示錯誤，不會靜默無反應", async () => {
@@ -600,7 +670,7 @@ describe("Chat page", () => {
     render(<ChatPage />);
     await ask("這季營收如何？");
 
-    expect(await screen.findByText(/回應格式錯誤/)).toBeInTheDocument();
+    expect(await findAssistantMessage(/回應格式錯誤/)).toBeInTheDocument();
   });
 
   it("回應不是 NDJSON 時顯示錯誤，不會靜默吞掉內容", async () => {
@@ -611,7 +681,7 @@ describe("Chat page", () => {
     render(<ChatPage />);
     await ask("這季營收如何？");
 
-    expect(await screen.findByText(/回應格式錯誤/)).toBeInTheDocument();
+    expect(await findAssistantMessage(/回應格式錯誤/)).toBeInTheDocument();
   });
 
   it("呼叫失敗時顯示錯誤助手訊息，且仍可繼續輸入", async () => {
@@ -622,8 +692,142 @@ describe("Chat page", () => {
     render(<ChatPage />);
     await ask("這季營收如何？");
 
-    expect(await screen.findByText(/network down/)).toBeInTheDocument();
+    expect(await findAssistantMessage(/network down/)).toBeInTheDocument();
     expect(screen.getByPlaceholderText(/輸入你的財務問題/)).toBeEnabled();
+  });
+});
+
+describe("Chat page 提示訊息", () => {
+  /** 停在一個未閉合的程式碼圍欄——串流中斷時最常見、也最容易吞掉後續文字的形狀。 */
+  const unterminatedFence = "以下是計算方式：\n\n```python\ntotal = 1 + 2";
+
+  it("中斷提示與已浮現的回覆內容位於不同元素", async () => {
+    stubFetch(async (_input, init) =>
+      abortableStreamResponse(
+        [
+          new TextEncoder().encode(
+            ndjson({ type: "delta", text: unterminatedFence })
+          ),
+        ],
+        init?.signal ?? undefined
+      )
+    );
+
+    const user = userEvent.setup();
+    render(<ChatPage />);
+    await ask("怎麼算的？");
+
+    const bubble = await findAssistantMessage("total = 1 + 2");
+    await user.click(await screen.findByRole("button", { name: "中斷" }));
+
+    await waitFor(() => expect(assistantNotice(bubble)).not.toBeNull());
+    const notice = assistantNotice(bubble)!;
+    expect(notice.textContent).toBe("（已中斷）");
+    // 提示自成一個元素，不與回覆內容共用容器——這正是提示欄位分離要解決的
+    // 核心問題：輸出停在未閉合的程式碼圍欄時，提示不該被吞進程式碼區塊裡。
+    const body = assistantBody(bubble)!;
+    expect(body).not.toBeNull();
+    expect(body.contains(notice)).toBe(false);
+    expect(notice.contains(body)).toBe(false);
+    expect(body.textContent).not.toContain("已中斷");
+    // 中斷前已浮現的內容完整保留：圍欄前的說明與圍欄內的程式碼都還在。
+    expect(body.textContent).toContain("以下是計算方式：");
+    expect(body.textContent).toContain("total = 1 + 2");
+  });
+
+  it("失敗提示與已浮現的回覆內容位於不同元素", async () => {
+    stubFetch(async () =>
+      ndjsonResponse(
+        { type: "delta", text: unterminatedFence },
+        { type: "error", error: "連線中斷" }
+      )
+    );
+
+    render(<ChatPage />);
+    await ask("怎麼算的？");
+
+    const bubble = await findAssistantMessage(/連線中斷/);
+    const notice = assistantNotice(bubble)!;
+    expect(notice).not.toBeNull();
+    expect(notice.textContent).toContain("連線中斷");
+
+    const body = assistantBody(bubble)!;
+    expect(body).not.toBeNull();
+    expect(body.contains(notice)).toBe(false);
+    expect(notice.contains(body)).toBe(false);
+    expect(body.textContent).not.toContain("連線中斷");
+    expect(body.textContent).toContain("total = 1 + 2");
+  });
+
+  it("提示排在回覆內容之後", async () => {
+    stubFetch(async () =>
+      ndjsonResponse(
+        { type: "delta", text: "本季營收" },
+        { type: "error", error: "連線中斷" }
+      )
+    );
+
+    render(<ChatPage />);
+    await ask("這季營收如何？");
+
+    const bubble = await findAssistantMessage(/連線中斷/);
+    const body = assistantTextElement(bubble, "本季營收");
+    const notice = assistantNotice(bubble)!;
+    expect(
+      body.compareDocumentPosition(notice) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  it("尚無任何回覆內容時，只有提示也照樣顯示", async () => {
+    stubFetch(async () => ndjsonResponse({ type: "error", error: "連線中斷" }));
+
+    render(<ChatPage />);
+    await ask("這季營收如何？");
+
+    const bubble = await findAssistantMessage(/連線中斷/);
+    const notice = assistantNotice(bubble)!;
+    expect(notice).not.toBeNull();
+    expect(notice.textContent).toContain("連線中斷");
+    // 回覆內容為空，泡泡裡就只剩提示。
+    expect(bubble.textContent).toBe(notice.textContent);
+  });
+
+  it("中斷時工具歷程仍收成終態，提示不影響工具列", async () => {
+    stubFetch(async (_input, init) =>
+      abortableStreamResponse(
+        [
+          new TextEncoder().encode(
+            ndjson(
+              { type: "tool_use", id: "t-1", name: "mcp__qadb__query" },
+              { type: "delta", text: unterminatedFence }
+            )
+          ),
+        ],
+        init?.signal ?? undefined
+      )
+    );
+
+    const user = userEvent.setup();
+    const { container } = render(<ChatPage />);
+    await ask("怎麼算的？");
+
+    const bubble = await findAssistantMessage("total = 1 + 2");
+    await user.click(await screen.findByRole("button", { name: "中斷" }));
+
+    await waitFor(() => expect(assistantNotice(bubble)).not.toBeNull());
+    expect(
+      container.querySelector('[data-slot="tool-usage"][data-status="running"]')
+    ).toBeNull();
+    expect(
+      container.querySelector('[data-slot="tool-usage"][data-status="error"]')
+        ?.textContent
+    ).toContain("已中斷");
+    // 工具列仍排在回覆內容之前。
+    const list = bubble.querySelector('[data-slot="tool-usage-list"]')!;
+    const body = assistantTextElement(bubble, "total = 1 + 2");
+    expect(
+      list.compareDocumentPosition(body) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
   });
 });
 
@@ -735,7 +939,7 @@ describe("Chat page 用量累計", () => {
       )
     );
     await ask("第二問");
-    await screen.findByText(/error_max_turns/);
+    await findAssistantMessage(/error_max_turns/);
 
     expect(
       screen.getByText(
@@ -765,10 +969,69 @@ describe("Chat page 用量累計", () => {
       )
     );
     await ask("第二問");
-    await screen.findByText(/本季/);
+    await findAssistantMessage(/本季/);
     await user.click(screen.getByRole("button", { name: "中斷" }));
-    await screen.findByText(/（已中斷）/);
+    await findAssistantMessage(/（已中斷）/);
 
     expect(screen.getByText(/累計消耗/).textContent).toBe(text);
+  });
+});
+
+describe("Chat page 串流動畫", () => {
+  /** 送出前段文字後停住，直到測試主動中止才結束——串流進行中的狀態。 */
+  const hangingReply = (text: string) => (_input: unknown, init?: RequestInit) =>
+    abortableStreamResponse(
+      [new TextEncoder().encode(ndjson({ type: "delta", text }))],
+      init?.signal ?? undefined
+    );
+
+  it("串流期間最後一則助手訊息啟用動畫", async () => {
+    stubFetch(async (_input, init) => hangingReply("本季營收成長")(_input, init));
+
+    render(<ChatPage />);
+    await ask("這季營收如何？");
+
+    const bubble = await findAssistantMessage("本季營收成長");
+    await waitFor(() => expect(isAnimating(bubble)).toBe(true));
+  });
+
+  it("第二輪串流期間，第一則助手訊息不啟用動畫", async () => {
+    // loading 是頁面層級的單一布林；若直接傳給每一則訊息，這裡的第一則
+    // 會跟著重播淡入——使用者每問一個新問題，整段對話歷史就閃動一次。
+    const fetchMock = stubFetch(async () =>
+      ndjsonResponse({ type: "done", result: "第一則回覆。", sessionId: "s-1" })
+    );
+
+    render(<ChatPage />);
+    await ask("第一個問題");
+    const first = await findAssistantMessage("第一則回覆。");
+    await waitFor(() => expect(isAnimating(first)).toBe(false));
+
+    fetchMock.mockImplementation(async (_input, init) =>
+      hangingReply("第二則回覆")(_input, init)
+    );
+    await ask("第二個問題");
+
+    const second = await findAssistantMessage("第二則回覆");
+    await waitFor(() => expect(isAnimating(second)).toBe(true));
+    // 關鍵斷言：新回覆正在串流，但歷史那則沒有跟著動。
+    expect(isAnimating(first)).toBe(false);
+  });
+
+  it("串流結束後不再有訊息處於動畫狀態", async () => {
+    stubFetch(async () =>
+      ndjsonResponse(
+        { type: "delta", text: "本季營收" },
+        { type: "done", result: "本季營收成長 12%。", sessionId: "s-1" }
+      )
+    );
+
+    render(<ChatPage />);
+    await ask("這季營收如何？");
+
+    await findAssistantMessage("本季營收成長 12%。");
+    await waitFor(() =>
+      expect(assistantBubbles().some(isAnimating)).toBe(false)
+    );
   });
 });
