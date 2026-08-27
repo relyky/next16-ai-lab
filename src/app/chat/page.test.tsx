@@ -126,6 +126,21 @@ function assistantNotice(bubble: HTMLElement) {
   return bubble.querySelector('[data-slot="assistant-notice"]');
 }
 
+/** 泡泡中的 markdown 內容區塊——回覆內容的邊界，提示不該落在裡面。 */
+function assistantBody(bubble: HTMLElement) {
+  return bubble.querySelector<HTMLElement>('[data-slot="assistant-markdown"]');
+}
+
+/**
+ * 該則助手回覆是否正在播放文字浮現動畫。
+ *
+ * 渲染器在動畫中的區塊上標記 `data-sd-animated`，非動畫時整個屬性不存在——
+ * 這是「有沒有在動畫」對外唯一可觀察的結果，不必去碰渲染器內部結構。
+ */
+function isAnimating(bubble: HTMLElement) {
+  return bubble.querySelector("[data-sd-animated]") !== null;
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -708,14 +723,16 @@ describe("Chat page 提示訊息", () => {
     await waitFor(() => expect(assistantNotice(bubble)).not.toBeNull());
     const notice = assistantNotice(bubble)!;
     expect(notice.textContent).toBe("（已中斷）");
-    // 提示自成一個元素，不與回覆內容共用容器：日後接上 markdown 渲染時
-    // 才不會被未閉合的程式碼圍欄吞進程式碼區塊裡。
-    const body = assistantTextElement(bubble, "total = 1 + 2");
-    expect(notice.contains(body)).toBe(false);
+    // 提示自成一個元素，不與回覆內容共用容器——這正是提示欄位分離要解決的
+    // 核心問題：輸出停在未閉合的程式碼圍欄時，提示不該被吞進程式碼區塊裡。
+    const body = assistantBody(bubble)!;
+    expect(body).not.toBeNull();
     expect(body.contains(notice)).toBe(false);
+    expect(notice.contains(body)).toBe(false);
     expect(body.textContent).not.toContain("已中斷");
-    // 中斷前已浮現的內容完整保留。
+    // 中斷前已浮現的內容完整保留：圍欄前的說明與圍欄內的程式碼都還在。
     expect(body.textContent).toContain("以下是計算方式：");
+    expect(body.textContent).toContain("total = 1 + 2");
   });
 
   it("失敗提示與已浮現的回覆內容位於不同元素", async () => {
@@ -734,10 +751,12 @@ describe("Chat page 提示訊息", () => {
     expect(notice).not.toBeNull();
     expect(notice.textContent).toContain("連線中斷");
 
-    const body = assistantTextElement(bubble, "total = 1 + 2");
-    expect(notice.contains(body)).toBe(false);
+    const body = assistantBody(bubble)!;
+    expect(body).not.toBeNull();
     expect(body.contains(notice)).toBe(false);
+    expect(notice.contains(body)).toBe(false);
     expect(body.textContent).not.toContain("連線中斷");
+    expect(body.textContent).toContain("total = 1 + 2");
   });
 
   it("提示排在回覆內容之後", async () => {
@@ -955,5 +974,64 @@ describe("Chat page 用量累計", () => {
     await findAssistantMessage(/（已中斷）/);
 
     expect(screen.getByText(/累計消耗/).textContent).toBe(text);
+  });
+});
+
+describe("Chat page 串流動畫", () => {
+  /** 送出前段文字後停住，直到測試主動中止才結束——串流進行中的狀態。 */
+  const hangingReply = (text: string) => (_input: unknown, init?: RequestInit) =>
+    abortableStreamResponse(
+      [new TextEncoder().encode(ndjson({ type: "delta", text }))],
+      init?.signal ?? undefined
+    );
+
+  it("串流期間最後一則助手訊息啟用動畫", async () => {
+    stubFetch(async (_input, init) => hangingReply("本季營收成長")(_input, init));
+
+    render(<ChatPage />);
+    await ask("這季營收如何？");
+
+    const bubble = await findAssistantMessage("本季營收成長");
+    await waitFor(() => expect(isAnimating(bubble)).toBe(true));
+  });
+
+  it("第二輪串流期間，第一則助手訊息不啟用動畫", async () => {
+    // loading 是頁面層級的單一布林；若直接傳給每一則訊息，這裡的第一則
+    // 會跟著重播淡入——使用者每問一個新問題，整段對話歷史就閃動一次。
+    const fetchMock = stubFetch(async () =>
+      ndjsonResponse({ type: "done", result: "第一則回覆。", sessionId: "s-1" })
+    );
+
+    render(<ChatPage />);
+    await ask("第一個問題");
+    const first = await findAssistantMessage("第一則回覆。");
+    await waitFor(() => expect(isAnimating(first)).toBe(false));
+
+    fetchMock.mockImplementation(async (_input, init) =>
+      hangingReply("第二則回覆")(_input, init)
+    );
+    await ask("第二個問題");
+
+    const second = await findAssistantMessage("第二則回覆");
+    await waitFor(() => expect(isAnimating(second)).toBe(true));
+    // 關鍵斷言：新回覆正在串流，但歷史那則沒有跟著動。
+    expect(isAnimating(first)).toBe(false);
+  });
+
+  it("串流結束後不再有訊息處於動畫狀態", async () => {
+    stubFetch(async () =>
+      ndjsonResponse(
+        { type: "delta", text: "本季營收" },
+        { type: "done", result: "本季營收成長 12%。", sessionId: "s-1" }
+      )
+    );
+
+    render(<ChatPage />);
+    await ask("這季營收如何？");
+
+    await findAssistantMessage("本季營收成長 12%。");
+    await waitFor(() =>
+      expect(assistantBubbles().some(isAnimating)).toBe(false)
+    );
   });
 });
