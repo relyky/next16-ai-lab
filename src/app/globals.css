@@ -2,6 +2,15 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
+/* Tailwind v4 需要 @source 才會生成 Streamdown 及其 plugin 用到的 utility class。
+   路徑層數依本檔實際位置（src/app/）實測：兩層才到 node_modules，
+   官方文件假設的 app/globals.css 只需一層。**寫錯不會報錯**，
+   只會靜默渲染成完全無樣式的裸 HTML；出現該症狀時第一個檢查點就是這裡。 */
+@source "../../node_modules/streamdown/dist/*.js";
+@source "../../node_modules/@streamdown/cjk/dist/*.js";
+@source "../../node_modules/@streamdown/code/dist/*.js";
+@source "../../node_modules/@streamdown/math/dist/*.js";
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {

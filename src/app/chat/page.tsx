@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 
+import { AssistantMarkdown } from "@/components/assistant-markdown";
 import { ChartCard } from "@/components/chart-card";
 import { ChatInput } from "@/components/chat-input";
 import { ToolUsageList, type ToolUsage } from "@/components/tool-usage-list";
@@ -41,11 +42,14 @@ function AssistantMessage({
   notice,
   charts,
   toolUsages,
+  isAnimating,
 }: {
   text: string;
   notice?: string;
   charts?: ChartDefinition[];
   toolUsages?: ToolUsage[];
+  /** 只有正在串流的那一則為 true；歷史訊息不該跟著重播淡入。 */
+  isAnimating?: boolean;
 }) {
   return (
     <div className="flex justify-start">
@@ -58,7 +62,7 @@ function AssistantMessage({
         {toolUsages?.length ? <ToolUsageList usages={toolUsages} /> : null}
         {/* 圖表可能比文字先到；文字還沒有內容時不留空白區塊。 */}
         {text ? (
-          <div className="px-4 py-3 text-sm whitespace-pre-wrap">{text}</div>
+          <AssistantMarkdown text={text} isAnimating={isAnimating} />
         ) : null}
         {charts?.length ? (
           <div className="flex flex-col gap-3 px-4 pb-4">
@@ -276,6 +280,12 @@ export default function ChatPage() {
     }
   }
 
+  // loading 是頁面層級的單一布林；直接傳給每一則助手訊息的話，串流期間
+  // 畫面上所有歷史助手訊息都會收到「正在動畫」而重播淡入——使用者每問一個
+  // 新問題，整段對話歷史就會閃動一次。故渲染前先取得最後一則助手訊息的
+  // 識別碼，只有它在串流期間才啟用動畫。
+  const lastAssistantId = messages.findLast((m) => m.role === "assistant")?.id;
+
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-4">
       <label className="flex items-center gap-2 self-end pt-4 text-sm text-muted-foreground">
@@ -303,6 +313,7 @@ export default function ChatPage() {
               notice={message.notice}
               charts={message.charts}
               toolUsages={showToolUsages ? message.toolUsages : undefined}
+              isAnimating={loading && message.id === lastAssistantId}
             />
           )
         )}
