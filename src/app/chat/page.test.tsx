@@ -121,6 +121,11 @@ function assistantTextElement(bubble: HTMLElement, text: string) {
   return hits.at(-1)!;
 }
 
+/** 泡泡中的提示元素（中斷／失敗），沒有則為 null。 */
+function assistantNotice(bubble: HTMLElement) {
+  return bubble.querySelector('[data-slot="assistant-notice"]');
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -674,6 +679,136 @@ describe("Chat page", () => {
 
     expect(await findAssistantMessage(/network down/)).toBeInTheDocument();
     expect(screen.getByPlaceholderText(/輸入你的財務問題/)).toBeEnabled();
+  });
+});
+
+describe("Chat page 提示訊息", () => {
+  /** 停在一個未閉合的程式碼圍欄——串流中斷時最常見、也最容易吞掉後續文字的形狀。 */
+  const unterminatedFence = "以下是計算方式：\n\n```python\ntotal = 1 + 2";
+
+  it("中斷提示與已浮現的回覆內容位於不同元素", async () => {
+    stubFetch(async (_input, init) =>
+      abortableStreamResponse(
+        [
+          new TextEncoder().encode(
+            ndjson({ type: "delta", text: unterminatedFence })
+          ),
+        ],
+        init?.signal ?? undefined
+      )
+    );
+
+    const user = userEvent.setup();
+    render(<ChatPage />);
+    await ask("怎麼算的？");
+
+    const bubble = await findAssistantMessage("total = 1 + 2");
+    await user.click(await screen.findByRole("button", { name: "中斷" }));
+
+    await waitFor(() => expect(assistantNotice(bubble)).not.toBeNull());
+    const notice = assistantNotice(bubble)!;
+    expect(notice.textContent).toBe("（已中斷）");
+    // 提示自成一個元素，不與回覆內容共用容器：日後接上 markdown 渲染時
+    // 才不會被未閉合的程式碼圍欄吞進程式碼區塊裡。
+    const body = assistantTextElement(bubble, "total = 1 + 2");
+    expect(notice.contains(body)).toBe(false);
+    expect(body.contains(notice)).toBe(false);
+    expect(body.textContent).not.toContain("已中斷");
+    // 中斷前已浮現的內容完整保留。
+    expect(body.textContent).toContain("以下是計算方式：");
+  });
+
+  it("失敗提示與已浮現的回覆內容位於不同元素", async () => {
+    stubFetch(async () =>
+      ndjsonResponse(
+        { type: "delta", text: unterminatedFence },
+        { type: "error", error: "連線中斷" }
+      )
+    );
+
+    render(<ChatPage />);
+    await ask("怎麼算的？");
+
+    const bubble = await findAssistantMessage(/連線中斷/);
+    const notice = assistantNotice(bubble)!;
+    expect(notice).not.toBeNull();
+    expect(notice.textContent).toContain("連線中斷");
+
+    const body = assistantTextElement(bubble, "total = 1 + 2");
+    expect(notice.contains(body)).toBe(false);
+    expect(body.contains(notice)).toBe(false);
+    expect(body.textContent).not.toContain("連線中斷");
+  });
+
+  it("提示排在回覆內容之後", async () => {
+    stubFetch(async () =>
+      ndjsonResponse(
+        { type: "delta", text: "本季營收" },
+        { type: "error", error: "連線中斷" }
+      )
+    );
+
+    render(<ChatPage />);
+    await ask("這季營收如何？");
+
+    const bubble = await findAssistantMessage(/連線中斷/);
+    const body = assistantTextElement(bubble, "本季營收");
+    const notice = assistantNotice(bubble)!;
+    expect(
+      body.compareDocumentPosition(notice) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  it("尚無任何回覆內容時，只有提示也照樣顯示", async () => {
+    stubFetch(async () => ndjsonResponse({ type: "error", error: "連線中斷" }));
+
+    render(<ChatPage />);
+    await ask("這季營收如何？");
+
+    const bubble = await findAssistantMessage(/連線中斷/);
+    const notice = assistantNotice(bubble)!;
+    expect(notice).not.toBeNull();
+    expect(notice.textContent).toContain("連線中斷");
+    // 回覆內容為空，泡泡裡就只剩提示。
+    expect(bubble.textContent).toBe(notice.textContent);
+  });
+
+  it("中斷時工具歷程仍收成終態，提示不影響工具列", async () => {
+    stubFetch(async (_input, init) =>
+      abortableStreamResponse(
+        [
+          new TextEncoder().encode(
+            ndjson(
+              { type: "tool_use", id: "t-1", name: "mcp__qadb__query" },
+              { type: "delta", text: unterminatedFence }
+            )
+          ),
+        ],
+        init?.signal ?? undefined
+      )
+    );
+
+    const user = userEvent.setup();
+    const { container } = render(<ChatPage />);
+    await ask("怎麼算的？");
+
+    const bubble = await findAssistantMessage("total = 1 + 2");
+    await user.click(await screen.findByRole("button", { name: "中斷" }));
+
+    await waitFor(() => expect(assistantNotice(bubble)).not.toBeNull());
+    expect(
+      container.querySelector('[data-slot="tool-usage"][data-status="running"]')
+    ).toBeNull();
+    expect(
+      container.querySelector('[data-slot="tool-usage"][data-status="error"]')
+        ?.textContent
+    ).toContain("已中斷");
+    // 工具列仍排在回覆內容之前。
+    const list = bubble.querySelector('[data-slot="tool-usage-list"]')!;
+    const body = assistantTextElement(bubble, "total = 1 + 2");
+    expect(
+      list.compareDocumentPosition(body) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
   });
 });
 

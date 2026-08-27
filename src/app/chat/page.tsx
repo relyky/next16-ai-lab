@@ -14,6 +14,12 @@ type Message = {
   id: number;
   role: "user" | "assistant";
   text: string;
+  /**
+   * 中斷或失敗的提示；只有 assistant 會有。
+   * 刻意與 text 分開：串接進回覆文字的話，回覆一旦改以 markdown 渲染，
+   * 停在未閉合程式碼圍欄的輸出會把提示一起吞進程式碼區塊裡。
+   */
+  notice?: string;
   /** 本則回應中助手產生的圖表，依產生順序排列；只有 assistant 會有。 */
   charts?: ChartDefinition[];
   /** 本則回應中的工具呼叫歷程，依呼叫順序排列；只有 assistant 會有。 */
@@ -32,10 +38,12 @@ function UserMessage({ text }: { text: string }) {
 
 function AssistantMessage({
   text,
+  notice,
   charts,
   toolUsages,
 }: {
   text: string;
+  notice?: string;
   charts?: ChartDefinition[];
   toolUsages?: ToolUsage[];
 }) {
@@ -59,6 +67,17 @@ function AssistantMessage({
               <ChartCard key={index} chart={chart} />
             ))}
           </div>
+        ) : null}
+        {/* 提示自成一個元素，且樣式與回覆內容有別：使用者要能分辨
+            哪些是助手說的、哪些是系統說的。回覆文字為空時也照樣顯示。 */}
+        {notice ? (
+          <p
+            data-slot="assistant-notice"
+            // 前面沒有任何內容時（僅有提示）自己補上頂端間距。
+            className="px-4 pb-3 text-xs text-muted-foreground first:pt-3"
+          >
+            {notice}
+          </p>
         ) : null}
       </Card>
     </div>
@@ -240,17 +259,17 @@ export default function ChatPage() {
     } catch (err) {
       // 使用者主動中斷不是失敗：保留已浮現的內容，只加註標示。
       if (err instanceof DOMException && err.name === "AbortError") {
-        const marker = "（已中斷）";
         settlePendingTools("已中斷");
-        upsertReply({ text: accumulated ? `${accumulated}\n\n${marker}` : marker });
+        upsertReply({ notice: "（已中斷）" });
         return;
       }
 
       const reason = err instanceof Error ? err.message : "未知錯誤";
-      const notice = `抱歉，這次回覆失敗了：${reason}。請再試一次。`;
       settlePendingTools("未完成");
-      // 已浮現的內容保留，錯誤提示接在後面。
-      upsertReply({ text: accumulated ? `${accumulated}\n\n${notice}` : notice });
+      // 已浮現的內容原封不動保留，錯誤提示走自己的欄位。
+      upsertReply({
+        notice: `抱歉，這次回覆失敗了：${reason}。請再試一次。`,
+      });
     } finally {
       abortRef.current = null;
       setLoading(false);
@@ -281,6 +300,7 @@ export default function ChatPage() {
             <AssistantMessage
               key={message.id}
               text={message.text}
+              notice={message.notice}
               charts={message.charts}
               toolUsages={showToolUsages ? message.toolUsages : undefined}
             />
