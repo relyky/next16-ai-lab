@@ -69,6 +69,58 @@ async function ask(question: string) {
   await user.click(screen.getByRole("button", { name: "送出" }));
 }
 
+/**
+ * 助手回覆文字的斷言輔助。
+ *
+ * 回覆文字會被包進區塊元素、也可能跨元素切分，`getByText` 這種
+ * 「單一元素的文字完全相符」的查詢無法表達要問的事。這裡一律改以
+ * 助手泡泡整體的文字內容做包含判斷：語意上要問的本來就是
+ * 「這則回覆裡有沒有講到這句話」，而不是「哪個元素剛好等於這句話」。
+ *
+ * 使用者泡泡、工具名稱、工具失敗原因、用量累計列都不走這條路徑，
+ * 它們的斷言維持原本的 `screen.getByText`。
+ */
+function assistantBubbles() {
+  return Array.from(
+    document.querySelectorAll<HTMLElement>('[data-slot="assistant-message"]')
+  );
+}
+
+function bubbleHasText(bubble: HTMLElement, text: string | RegExp) {
+  const content = bubble.textContent ?? "";
+  return typeof text === "string" ? content.includes(text) : text.test(content);
+}
+
+/** 目前畫面上是否有任何助手泡泡提到 `text`。 */
+function hasAssistantText(text: string | RegExp) {
+  return assistantBubbles().some((bubble) => bubbleHasText(bubble, text));
+}
+
+/** 取得提到 `text` 的助手泡泡；找不到即失敗。 */
+function getAssistantMessage(text: string | RegExp) {
+  const bubble = assistantBubbles().find((b) => bubbleHasText(b, text));
+  expect(bubble, `找不到提到 ${text} 的助手回覆`).toBeDefined();
+  return bubble!;
+}
+
+/** 等待某則助手泡泡提到 `text`，回傳該泡泡。 */
+async function findAssistantMessage(text: string | RegExp) {
+  await waitFor(() => expect(hasAssistantText(text)).toBe(true));
+  return getAssistantMessage(text);
+}
+
+/**
+ * 泡泡中提到 `text` 的最內層元素，供 DOM 順序比較使用。
+ * 文件順序中後代必定排在祖先之後，故最後一個命中者即最內層。
+ */
+function assistantTextElement(bubble: HTMLElement, text: string) {
+  const hits = Array.from(bubble.querySelectorAll("*")).filter((el) =>
+    el.textContent?.includes(text)
+  );
+  expect(hits.at(-1), `助手回覆中找不到 ${text}`).toBeDefined();
+  return hits.at(-1)!;
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -100,7 +152,7 @@ describe("Chat page 圖表渲染", () => {
     const { container } = render(<ChatPage />);
     await ask("月營收趨勢如何？");
 
-    expect(await screen.findByText("如圖所示。")).toBeInTheDocument();
+    expect(await findAssistantMessage("如圖所示。")).toBeInTheDocument();
     expect(screen.getByText("月營收趨勢")).toBeInTheDocument();
     expect(container.querySelectorAll('[data-slot="chart-card"]')).toHaveLength(1);
   });
@@ -117,7 +169,7 @@ describe("Chat page 圖表渲染", () => {
     const { container } = render(<ChatPage />);
     await ask("給我兩張圖");
 
-    expect(await screen.findByText("兩張圖如上。")).toBeInTheDocument();
+    expect(await findAssistantMessage("兩張圖如上。")).toBeInTheDocument();
     const titles = Array.from(
       container.querySelectorAll('[data-slot="chart-title"]')
     ).map((el) => el.textContent);
@@ -135,7 +187,7 @@ describe("Chat page 圖表渲染", () => {
 
     const { container } = render(<ChatPage />);
     await ask("第一個問題");
-    await screen.findByText("第一則。");
+    await findAssistantMessage("第一則。");
 
     fetchMock.mockImplementation(async () =>
       ndjsonResponse(chartEvent("bar", "第二張"), {
@@ -145,7 +197,7 @@ describe("Chat page 圖表渲染", () => {
       })
     );
     await ask("第二個問題");
-    await screen.findByText("第二則。");
+    await findAssistantMessage("第二則。");
 
     const bubbles = container.querySelectorAll('[data-slot="assistant-message"]');
     expect(bubbles).toHaveLength(2);
@@ -171,7 +223,7 @@ describe("Chat page 工具呼叫歷程", () => {
     const { container } = render(<ChatPage />);
     await ask("有幾個專案？");
 
-    expect(await screen.findByText("共 5 個專案。")).toBeInTheDocument();
+    expect(await findAssistantMessage("共 5 個專案。")).toBeInTheDocument();
     // 工具全名以原樣顯示，不做前綴剝除。
     expect(
       screen.getByText("mcp__qadb__search_asvt_project_basic")
@@ -219,7 +271,7 @@ describe("Chat page 工具呼叫歷程", () => {
     const { container } = render(<ChatPage />);
     await ask("查一下");
 
-    expect(await screen.findByText("抱歉，查不到。")).toBeInTheDocument();
+    expect(await findAssistantMessage("抱歉，查不到。")).toBeInTheDocument();
     expect(screen.getByText("連線逾時")).toBeInTheDocument();
     expect(
       container.querySelector('[data-slot="tool-usage"][data-status="error"]')
@@ -240,7 +292,7 @@ describe("Chat page 工具呼叫歷程", () => {
     const { container } = render(<ChatPage />);
     await ask("畫張圖");
 
-    await screen.findByText("如圖所示。");
+    await findAssistantMessage("如圖所示。");
     const names = Array.from(
       container.querySelectorAll('[data-slot="tool-usage"]')
     ).map((el) => el.querySelector("span")?.textContent);
@@ -259,11 +311,9 @@ describe("Chat page 工具呼叫歷程", () => {
     const { container } = render(<ChatPage />);
     await ask("有幾個專案？");
 
-    const bubble = (await screen.findByText("共 5 個專案。")).closest(
-      '[data-slot="assistant-message"]'
-    )!;
+    const bubble = await findAssistantMessage("共 5 個專案。");
     const list = bubble.querySelector('[data-slot="tool-usage-list"]')!;
-    const text = screen.getByText("共 5 個專案。");
+    const text = assistantTextElement(bubble, "共 5 個專案。");
     expect(
       list.compareDocumentPosition(text) & Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
@@ -282,14 +332,14 @@ describe("Chat page 工具呼叫歷程", () => {
     const user = userEvent.setup();
     const { container } = render(<ChatPage />);
     await ask("有幾個專案？");
-    await screen.findByText("共 5 個專案。");
+    await findAssistantMessage("共 5 個專案。");
 
     const toggle = screen.getByRole("switch", { name: /顯示處理過程/ });
     await user.click(toggle);
 
     expect(container.querySelector('[data-slot="tool-usage-list"]')).toBeNull();
     // 純顯示濾鏡：文字不受影響。
-    expect(screen.getByText("共 5 個專案。")).toBeInTheDocument();
+    expect(getAssistantMessage("共 5 個專案。")).toBeInTheDocument();
 
     await user.click(toggle);
 
@@ -327,7 +377,7 @@ describe("Chat page 工具呼叫歷程", () => {
     await screen.findByText("mcp__qadb__query");
     await user.click(await screen.findByRole("button", { name: "中斷" }));
 
-    await screen.findByText("（已中斷）");
+    await findAssistantMessage("（已中斷）");
     expect(
       container.querySelector('[data-slot="tool-usage"][data-status="running"]')
     ).toBeNull();
@@ -353,7 +403,7 @@ describe("Chat page 工具呼叫歷程", () => {
     const { container } = render(<ChatPage />);
     await ask("查一下");
 
-    expect(await screen.findByText("共 5 個專案。")).toBeInTheDocument();
+    expect(await findAssistantMessage("共 5 個專案。")).toBeInTheDocument();
     expect(
       container.querySelector('[data-slot="tool-usage"][data-status="running"]')
     ).toBeNull();
@@ -371,7 +421,7 @@ describe("Chat page 工具呼叫歷程", () => {
     const { container } = render(<ChatPage />);
     await ask("查一下");
 
-    expect(await screen.findByText(/連線中斷/)).toBeInTheDocument();
+    expect(await findAssistantMessage(/連線中斷/)).toBeInTheDocument();
     expect(
       container.querySelector('[data-slot="tool-usage"][data-status="running"]')
     ).toBeNull();
@@ -391,7 +441,7 @@ describe("Chat page 工具呼叫歷程", () => {
     const { container } = render(<ChatPage />);
     await ask("畫張圖");
 
-    await screen.findByText("如圖所示。");
+    await findAssistantMessage("如圖所示。");
     expect(container.querySelectorAll('[data-slot="chart-card"]')).toHaveLength(1);
     expect(screen.getByText("mcp__charts__line_chart")).toBeInTheDocument();
   });
@@ -410,7 +460,7 @@ describe("Chat page", () => {
     render(<ChatPage />);
     await ask("這季營收如何？");
 
-    expect(await screen.findByText("本季營收成長 12%。")).toBeInTheDocument();
+    expect(await findAssistantMessage("本季營收成長 12%。")).toBeInTheDocument();
     expect(screen.getByText("這季營收如何？")).toBeInTheDocument();
   });
 
@@ -432,7 +482,7 @@ describe("Chat page", () => {
     render(<ChatPage />);
     await ask("毛利率？");
 
-    expect(await screen.findByText("毛利率為 38%。")).toBeInTheDocument();
+    expect(await findAssistantMessage("毛利率為 38%。")).toBeInTheDocument();
   });
 
   it("done 的 result 為空時保留已累積的增量文字", async () => {
@@ -446,7 +496,7 @@ describe("Chat page", () => {
     render(<ChatPage />);
     await ask("這季營收如何？");
 
-    expect(await screen.findByText("本季營收")).toBeInTheDocument();
+    expect(await findAssistantMessage("本季營收")).toBeInTheDocument();
   });
 
   it("沒有 done 事件時保留已累積的增量文字", async () => {
@@ -455,7 +505,7 @@ describe("Chat page", () => {
     render(<ChatPage />);
     await ask("這季營收如何？");
 
-    expect(await screen.findByText("只有增量。")).toBeInTheDocument();
+    expect(await findAssistantMessage("只有增量。")).toBeInTheDocument();
   });
 
   it("第二次提問會帶上前一次回傳的 sessionId", async () => {
@@ -465,7 +515,7 @@ describe("Chat page", () => {
 
     render(<ChatPage />);
     await ask("第一個問題");
-    await screen.findByText("好的。");
+    await findAssistantMessage("好的。");
     await ask("追問");
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
@@ -498,12 +548,12 @@ describe("Chat page", () => {
     render(<ChatPage />);
     await ask("這季營收如何？");
 
-    await screen.findByText("本季營收");
+    await findAssistantMessage("本季營收");
     await user.click(await screen.findByRole("button", { name: "中斷" }));
 
-    expect(await screen.findByText(/本季營收/)).toBeInTheDocument();
-    expect(screen.getByText(/已中斷/)).toBeInTheDocument();
-    expect(screen.queryByText(/抱歉/)).not.toBeInTheDocument();
+    expect(await findAssistantMessage(/本季營收/)).toBeInTheDocument();
+    expect(getAssistantMessage(/已中斷/)).toBeInTheDocument();
+    expect(hasAssistantText(/抱歉/)).toBe(false);
     // fetch 確實被中止，瀏覽器不會再送來後續增量。
     expect(fetchMock.mock.calls[0][1].signal.aborted).toBe(true);
   });
@@ -528,10 +578,10 @@ describe("Chat page", () => {
     const user = userEvent.setup();
     render(<ChatPage />);
     await ask("這季營收如何？");
-    await screen.findByText("本季營收");
+    await findAssistantMessage("本季營收");
     await user.click(await screen.findByRole("button", { name: "中斷" }));
 
-    await screen.findByText(/已中斷/);
+    await findAssistantMessage(/已中斷/);
     await ask("追問");
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
@@ -550,7 +600,7 @@ describe("Chat page", () => {
     await ask("這季營收如何？");
 
     expect(
-      await screen.findByText(/LLM 回應失敗（error_during_execution）/)
+      await findAssistantMessage(/LLM 回應失敗（error_during_execution）/)
     ).toBeInTheDocument();
   });
 
@@ -566,7 +616,7 @@ describe("Chat page", () => {
     await ask("這季營收如何？");
 
     expect(
-      await screen.findByText(/LLM 回應失敗（error_during_execution）/)
+      await findAssistantMessage(/LLM 回應失敗（error_during_execution）/)
     ).toBeInTheDocument();
   });
 
@@ -581,8 +631,8 @@ describe("Chat page", () => {
     render(<ChatPage />);
     await ask("這季營收如何？");
 
-    expect(await screen.findByText(/本季營收/)).toBeInTheDocument();
-    expect(screen.getByText(/連線中斷/)).toBeInTheDocument();
+    expect(await findAssistantMessage(/本季營收/)).toBeInTheDocument();
+    expect(getAssistantMessage(/連線中斷/)).toBeInTheDocument();
   });
 
   it("回應 body 沒有任何事件時顯示錯誤，不會靜默無反應", async () => {
@@ -591,7 +641,7 @@ describe("Chat page", () => {
     render(<ChatPage />);
     await ask("這季營收如何？");
 
-    expect(await screen.findByText(/回應格式錯誤/)).toBeInTheDocument();
+    expect(await findAssistantMessage(/回應格式錯誤/)).toBeInTheDocument();
   });
 
   it("只收到 session 事件就斷線時顯示錯誤，不會靜默無反應", async () => {
@@ -600,7 +650,7 @@ describe("Chat page", () => {
     render(<ChatPage />);
     await ask("這季營收如何？");
 
-    expect(await screen.findByText(/回應格式錯誤/)).toBeInTheDocument();
+    expect(await findAssistantMessage(/回應格式錯誤/)).toBeInTheDocument();
   });
 
   it("回應不是 NDJSON 時顯示錯誤，不會靜默吞掉內容", async () => {
@@ -611,7 +661,7 @@ describe("Chat page", () => {
     render(<ChatPage />);
     await ask("這季營收如何？");
 
-    expect(await screen.findByText(/回應格式錯誤/)).toBeInTheDocument();
+    expect(await findAssistantMessage(/回應格式錯誤/)).toBeInTheDocument();
   });
 
   it("呼叫失敗時顯示錯誤助手訊息，且仍可繼續輸入", async () => {
@@ -622,7 +672,7 @@ describe("Chat page", () => {
     render(<ChatPage />);
     await ask("這季營收如何？");
 
-    expect(await screen.findByText(/network down/)).toBeInTheDocument();
+    expect(await findAssistantMessage(/network down/)).toBeInTheDocument();
     expect(screen.getByPlaceholderText(/輸入你的財務問題/)).toBeEnabled();
   });
 });
@@ -735,7 +785,7 @@ describe("Chat page 用量累計", () => {
       )
     );
     await ask("第二問");
-    await screen.findByText(/error_max_turns/);
+    await findAssistantMessage(/error_max_turns/);
 
     expect(
       screen.getByText(
@@ -765,9 +815,9 @@ describe("Chat page 用量累計", () => {
       )
     );
     await ask("第二問");
-    await screen.findByText(/本季/);
+    await findAssistantMessage(/本季/);
     await user.click(screen.getByRole("button", { name: "中斷" }));
-    await screen.findByText(/（已中斷）/);
+    await findAssistantMessage(/（已中斷）/);
 
     expect(screen.getByText(/累計消耗/).textContent).toBe(text);
   });
