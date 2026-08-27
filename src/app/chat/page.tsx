@@ -51,39 +51,49 @@ function AssistantMessage({
   /** 只有正在串流的那一則為 true；歷史訊息不該跟著重播淡入。 */
   isAnimating?: boolean;
 }) {
+  // 泡泡、圖表、提示是同一則回應的三種產物，但各自有自己的外框。圖表放進
+  // 泡泡裡會變成 bg-card 疊 bg-card 的雙層框，內框沒有對比、只剩雜訊；故三者
+  // 並列為兄弟，以 assistant-turn 綁在一起，保證不會與別則混淆。
+  // 圖表可能比文字先到，此時整個泡泡都還沒有內容，就不要留一個空框。
+  const hasBubble = Boolean(toolUsages?.length || text);
+
   return (
-    <div className="flex justify-start">
-      {/* 有圖表時撐滿寬度，圖表才有可讀的尺寸；純文字則維持隨內容縮放。 */}
-      <Card
-        data-slot="assistant-message"
-        className={charts?.length ? "w-[90%] p-0" : "max-w-[90%] p-0"}
-      >
-        {/* 工具列在文字之前，反映「先呼叫工具、再依結果作答」的實際流程。 */}
-        {toolUsages?.length ? <ToolUsageList usages={toolUsages} /> : null}
-        {/* 圖表可能比文字先到；文字還沒有內容時不留空白區塊。 */}
-        {text ? (
-          <AssistantMarkdown text={text} isAnimating={isAnimating} />
-        ) : null}
-        {charts?.length ? (
-          <div className="flex flex-col gap-3 px-4 pb-4">
-            {charts.map((chart, index) => (
-              // 圖表沒有天然的識別碼，同一則回應中的順序即其身分。
-              <ChartCard key={index} chart={chart} />
-            ))}
-          </div>
-        ) : null}
-        {/* 提示自成一個元素，且樣式與回覆內容有別：使用者要能分辨
-            哪些是助手說的、哪些是系統說的。回覆文字為空時也照樣顯示。 */}
-        {notice ? (
-          <p
-            data-slot="assistant-notice"
-            // 前面沒有任何內容時（僅有提示）自己補上頂端間距。
-            className="px-4 pb-3 text-xs text-muted-foreground first:pt-3"
-          >
-            {notice}
-          </p>
-        ) : null}
-      </Card>
+    <div
+      data-slot="assistant-turn"
+      // 一則回應的三種產物（泡泡／圖表／提示）以一層淡底色收成一群。
+      // 深色模式不能沿用 muted：本專案的 --card(0.205) 比 --background(0.145) 亮，
+      // 卡片是浮起的；muted(0.269) 當底色會比卡片還亮而讓卡片凹陷、深度線索反轉。
+      // 故深色改用比 card 更暗的黑色薄層，兩種模式下卡片都比群組底色亮。
+      className="flex flex-col items-start gap-2 rounded-xl bg-muted/60 p-3 dark:bg-black/25"
+    >
+      {hasBubble ? (
+        <Card data-slot="assistant-message" className="max-w-[90%] p-0">
+          {/* 工具列在文字之前，反映「先呼叫工具、再依結果作答」的實際流程。 */}
+          {toolUsages?.length ? <ToolUsageList usages={toolUsages} /> : null}
+          {text ? (
+            <AssistantMarkdown text={text} isAnimating={isAnimating} />
+          ) : null}
+        </Card>
+      ) : null}
+
+      {/* ResponsiveContainer 量的是父層的實際寬度；w-full 是必要的而非裝飾——
+          items-start 會讓子項隨內容縮放，量不到寬度圖就畫不出來。 */}
+      {charts?.length ? (
+        <div data-slot="assistant-charts" className="flex w-full flex-col gap-3">
+          {charts.map((chart, index) => (
+            // 圖表沒有天然的識別碼，同一則回應中的順序即其身分。
+            <ChartCard key={index} chart={chart} />
+          ))}
+        </div>
+      ) : null}
+
+      {/* 提示排在所有內容之後：使用者要在讀完已浮現的內容後才看到「已中斷」。
+          它不在泡泡內，故未閉合的程式碼圍欄不可能把它吞進程式碼區塊。 */}
+      {notice ? (
+        <p data-slot="assistant-notice" className="text-xs text-muted-foreground">
+          {notice}
+        </p>
+      ) : null}
     </div>
   );
 }
