@@ -120,25 +120,26 @@ export async function POST(request: Request) {
 
           if (message.type !== "result") continue;
 
+          // 用量取自 modelUsage 而非 usage：後者只涵蓋主迴圈，會漏掉
+          // subagent 與 compaction 等內部呼叫而低報。只涵蓋這一次 query()，
+          // 非 session 累計；累加由前端負責。
+          // 不分成敗都送：失敗輪次的 token 一樣真的燒掉了。且必須排在下面的
+          // error 之前 —— 前端一收到 error 就中止解析，排在後面會被漏接。
+          const usage = { in: 0, cache_c: 0, cache_r: 0, out: 0 };
+          for (const model of Object.values(message.modelUsage)) {
+            usage.in += model.inputTokens;
+            usage.cache_c += model.cacheCreationInputTokens;
+            usage.cache_r += model.cacheReadInputTokens;
+            usage.out += model.outputTokens;
+          }
+          send({ type: "usage", ...usage });
+
           if (message.subtype !== "success") {
             send({ type: "error", error: `LLM 回應失敗（${message.subtype}）` });
           } else if (message.is_error) {
             // subtype 為 success 但 is_error 時，result 承載的是錯誤文字。
             send({ type: "error", error: message.result });
           } else {
-            // 用量取自 modelUsage 而非 usage：usage 只涵蓋主迴圈，會漏掉
-            // subagent 與 compaction 等內部呼叫，長對話時低報。SDK 型別註解
-            // 亦明指 modelUsage 才是 token 計量的正確欄位。
-            // 只涵蓋這一次 query()，非 session 累計；累加由前端負責。
-            const usage = { in: 0, cache_c: 0, cache_r: 0, out: 0 };
-            for (const model of Object.values(message.modelUsage)) {
-              usage.in += model.inputTokens;
-              usage.cache_c += model.cacheCreationInputTokens;
-              usage.cache_r += model.cacheReadInputTokens;
-              usage.out += model.outputTokens;
-            }
-            send({ type: "usage", ...usage });
-
             // session_id 以本次結果為準：resume 有可能 fork 出新的 session。
             send({
               type: "done",

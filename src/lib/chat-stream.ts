@@ -24,9 +24,11 @@ export type ChatStreamEvent =
   /** 該次工具呼叫結束；成功時純為結束訊號，失敗時 `message` 帶截斷後的簡短原因 */
   | { type: "tool_done"; id: string; ok: boolean; message?: string }
   /**
-   * 本輪 `query()` 的 token 用量，跨各模型加總；排在 `done` 之前。
-   * 三種輸入分類互斥（`in` 不含 cache 部分），故不做總和。
-   * 僅在該輪成功完成時出現；中斷或失敗時拿不到用量，不送此事件。
+   * 本輪 `query()` 的 token 用量，跨各模型加總。
+   * 不分成敗，只要該輪有結果就送出 —— 失敗輪次（turn 用盡、API 過載等）
+   * 的 token 一樣真的消耗了。排在 `done` 與 `error` 之前：前端一收到
+   * `error` 就中止解析該次串流，排在後面會被漏接。
+   * 中斷的輪次仍不會有此事件 —— 那時後端拿不到用量。
    */
   | ({ type: "usage" } & Usage)
   /** 權威的完整內容（串流正常結束） */

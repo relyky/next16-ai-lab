@@ -715,6 +715,35 @@ describe("Chat page 用量累計", () => {
     expect(await screen.findByText(/out 42 tokens/)).toBeInTheDocument();
   });
 
+  it("失敗的輪次一樣計入累計：那些 token 確實已消耗", async () => {
+    stubFetch(async () =>
+      ndjsonResponse(
+        usageEvent({ in: 3, cache_c: 100, cache_r: 20, out: 40 }),
+        { type: "done", result: "好的。", sessionId: "s-1" }
+      )
+    );
+
+    render(<ChatPage />);
+    await ask("第一問");
+    await screen.findByText(/out 40 tokens/);
+
+    // 第二輪 turn 用盡：後端先送 usage 再送 error。
+    stubFetch(async () =>
+      ndjsonResponse(
+        usageEvent({ in: 5, cache_c: 0, cache_r: 0, out: 9 }),
+        { type: "error", error: "LLM 回應失敗（error_max_turns）" }
+      )
+    );
+    await ask("第二問");
+    await screen.findByText(/error_max_turns/);
+
+    expect(
+      screen.getByText(
+        "累計消耗 in 8 | cache_c 100 | cache_r 20 | out 49 tokens"
+      )
+    ).toBeInTheDocument();
+  });
+
   it("中斷的輪次沒有 usage 事件，不影響既有累計", async () => {
     stubFetch(async () =>
       ndjsonResponse(

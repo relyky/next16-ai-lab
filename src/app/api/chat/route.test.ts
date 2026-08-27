@@ -779,7 +779,56 @@ describe("POST /api/chat", () => {
       expect(events.some((e) => e.type === "usage")).toBe(false);
     });
 
-    it("失敗的輪次不送出 usage 事件", async () => {
+    it("失敗的輪次一樣送出 usage：那些 token 確實已消耗", async () => {
+      queryMock.mockImplementation(async function* () {
+        yield { type: "system", subtype: "init", session_id: "s-1" };
+        yield {
+          type: "result",
+          subtype: "error_max_turns",
+          is_error: true,
+          session_id: "s-1",
+          modelUsage: { haiku: modelUsage({ inputTokens: 5, outputTokens: 9 }) },
+        };
+      });
+      const { POST } = await import("./route");
+
+      const events = await drain((await POST(chatRequest())).body!);
+
+      expect(events).toContainEqual({
+        type: "usage",
+        in: 5,
+        cache_c: 0,
+        cache_r: 0,
+        out: 9,
+      });
+    });
+
+    it("is_error 的成功輪次一樣送出 usage", async () => {
+      queryMock.mockImplementation(async function* () {
+        yield { type: "system", subtype: "init", session_id: "s-1" };
+        yield {
+          type: "result",
+          subtype: "success",
+          is_error: true,
+          result: "API 過載",
+          session_id: "s-1",
+          modelUsage: { haiku: modelUsage({ outputTokens: 7 }) },
+        };
+      });
+      const { POST } = await import("./route");
+
+      const events = await drain((await POST(chatRequest())).body!);
+
+      expect(events).toContainEqual({
+        type: "usage",
+        in: 0,
+        cache_c: 0,
+        cache_r: 0,
+        out: 7,
+      });
+    });
+
+    it("usage 排在 error 之前：前端收到 error 就中止解析，排在後面會漏接", async () => {
       queryMock.mockImplementation(async function* () {
         yield { type: "system", subtype: "init", session_id: "s-1" };
         yield {
@@ -792,9 +841,12 @@ describe("POST /api/chat", () => {
       });
       const { POST } = await import("./route");
 
-      const events = await drain((await POST(chatRequest())).body!);
+      const types = (await drain((await POST(chatRequest())).body!)).map(
+        (e) => e.type
+      );
 
-      expect(events.some((e) => e.type === "usage")).toBe(false);
+      expect(types).toContain("usage");
+      expect(types.indexOf("usage")).toBeLessThan(types.indexOf("error"));
     });
   });
 
