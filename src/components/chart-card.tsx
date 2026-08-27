@@ -179,7 +179,7 @@ function CartesianChartView({ chart }: { chart: CartesianChartDefinition }) {
  * 回退取的是該扇形自己的序號而非「第幾個未指定」，
  * 混合案例中每個扇形的預設色才不會隨前面幾列有沒有指定色而漂移。
  */
-export function sectorColorAt(
+function sectorColorAt(
   row: Record<string, string | number>,
   index: number,
   colorKey: string | undefined

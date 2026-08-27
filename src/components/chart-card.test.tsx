@@ -303,6 +303,30 @@ describe("ChartCard 餅圖", () => {
     ]);
   });
 
+  // 後端已允許「colorKey 只出現在後續列」，前端必須同樣容得下這種資料，
+  // 否則兩端對同一份合法定義的解讀會分歧。
+  it("colorKey 指到的欄位在第 1 列缺值時，該扇形回退預設配色", () => {
+    const { container } = render(
+      <ChartCard
+        chart={{
+          ...pieChart,
+          data: [
+            { item: "原料", amount: 120 },
+            { item: "人力", amount: 80, tone: "#00ff00" },
+            { item: "行銷", amount: 40 },
+          ],
+          colorKey: "tone",
+        }}
+      />
+    );
+
+    expect(sectorFillsOf(container)).toEqual([
+      "var(--chart-1)",
+      "#00ff00",
+      "var(--chart-3)",
+    ]);
+  });
+
   // 圖例內容在 jsdom 下需等 recharts 的 payload 就緒，此處只驗容器存在；
   // 「類別名稱看得見」改由扇形標籤驗證——它是同一份 nameKey 的另一個呈現點。
   it("渲染圖例容器", () => {

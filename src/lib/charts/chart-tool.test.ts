@@ -289,6 +289,18 @@ describe("buildPieChartResult", () => {
     expect(message).toContain("2");
   });
 
+  // 缺值的列回退預設配色是本功能刻意支援的混合案例，
+  // 「第 1 列剛好沒有色碼欄位」是其中最自然的寫法之一，不該被誤判為欄位不存在。
+  it("colorKey 只出現在後續列時仍視為存在", () => {
+    const data = [
+      { item: "原料", amount: 120 },
+      { item: "人力", amount: 80, tone: "#00ff00" },
+    ];
+    const result = buildPieChartResult({ ...validPieInput, data, colorKey: "tone" });
+
+    expect(result.isError).toBeFalsy();
+  });
+
   it("零與正數皆為合法值", () => {
     const data = [
       { item: "原料", amount: 0 },

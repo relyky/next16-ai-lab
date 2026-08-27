@@ -332,7 +332,11 @@ export function buildPieChartResult(input: unknown): ChartToolResult {
   }
 
   if (colorKey !== undefined) {
-    const missingColorKey = assertKeyExists("colorKey", colorKey, availableKeys);
+    // nameKey / valueKey 每一列都必須有值，看 data[0] 就夠；colorKey 不同——
+    // 缺值的列回退預設配色是刻意支援的，第 1 列剛好沒有色碼欄位是其中最自然的
+    // 寫法之一，故存在性改以全列的欄位聯集判定，否則會被誤判為欄位不存在。
+    const colorCandidateKeys = [...new Set(data.flatMap((row) => Object.keys(row)))];
+    const missingColorKey = assertKeyExists("colorKey", colorKey, colorCandidateKeys);
     if (missingColorKey) return missingColorKey;
 
     // 色碼格式與數列顏色同一套規則；data 欄位的型別允許任意字串，
