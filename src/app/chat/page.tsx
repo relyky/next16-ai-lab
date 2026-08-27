@@ -58,7 +58,14 @@ function AssistantMessage({
   const hasBubble = Boolean(toolUsages?.length || text);
 
   return (
-    <div data-slot="assistant-turn" className="flex flex-col items-start gap-2">
+    <div
+      data-slot="assistant-turn"
+      // 一則回應的三種產物（泡泡／圖表／提示）以一層淡底色收成一群。
+      // 深色模式不能沿用 muted：本專案的 --card(0.205) 比 --background(0.145) 亮，
+      // 卡片是浮起的；muted(0.269) 當底色會比卡片還亮而讓卡片凹陷、深度線索反轉。
+      // 故深色改用比 card 更暗的黑色薄層，兩種模式下卡片都比群組底色亮。
+      className="flex flex-col items-start gap-2 rounded-xl bg-muted/60 p-3 dark:bg-black/25"
+    >
       {hasBubble ? (
         <Card data-slot="assistant-message" className="max-w-[90%] p-0">
           {/* 工具列在文字之前，反映「先呼叫工具、再依結果作答」的實際流程。 */}

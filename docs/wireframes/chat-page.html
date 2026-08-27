@@ -132,7 +132,8 @@
 </table>
 
 <h2>2. 訊息泡泡結構</h2>
-<p>兩種角色採不同的視覺語言：使用者為右側實心色塊，助手為左側白底卡片。助手的一則回應會長出三種產物——泡泡、圖表、提示——依串流事件動態出現，彼此<strong>並列為兄弟</strong>而非巢狀：圖表若放進泡泡內，會變成 <code>bg-card</code> 疊 <code>bg-card</code> 的雙層外框，內框沒有對比、只剩雜訊。</p>
+<p>兩種角色採不同的視覺語言：使用者為右側實心色塊，助手為左側白底卡片。助手的一則回應會長出三種產物——泡泡、圖表、提示——依串流事件動態出現，彼此<strong>並列為兄弟</strong>而非巢狀：圖表若放進泡泡內，會變成 <code>bg-card</code> 疊 <code>bg-card</code> 的雙層外框，內框沒有對比、只剩雜訊。三者再以一層淡底色（<code>assistant-turn</code>）收成一群，補回並列後失去的歸屬感。</p>
+<p><strong>深色模式的底色不能沿用 <code>muted</code>。</strong> 本專案的 <code>--card</code>（0.205）比 <code>--background</code>（0.145）<em>更亮</em>——卡片是浮起的；若群組底色用 <code>muted</code>（0.269）會比卡片還亮，卡片反而凹陷，深度線索與淺色模式相反（實測圖表卡對比僅 1.01，幾乎沒入背景）。故深色改用比 <code>card</code> 更暗的黑色薄層 <code>dark:bg-black/25</code>，兩種模式下卡片都比群組底色亮。</p>
 
 <figure>
 <svg viewBox="0 0 1120 470" role="img" aria-label="使用者與助手訊息泡泡結構">
@@ -148,9 +149,9 @@
 
   <!-- assistant -->
   <text x="20" y="152" font-size="14" font-weight="600">AssistantMessage</text>
-  <text x="20" y="172" font-size="12" fill="#6b6b6b">assistant-turn：flex flex-col items-start gap-2 · 泡泡 Card p-0 max-w-[90%] · 圖表欄 w-full</text>
+  <text x="20" y="172" font-size="12" fill="#6b6b6b">assistant-turn：flex flex-col items-start gap-2 rounded-xl bg-muted/60 p-3 dark:bg-black/25 · 泡泡 Card p-0 max-w-[90%] · 圖表欄 w-full</text>
 
-  <rect x="20" y="186" width="1080" height="264" fill="none" stroke="#c8c8c8" stroke-dasharray="4 4"/>
+  <rect x="20" y="186" width="1080" height="264" rx="14" fill="#f7f7f7"/>
   <rect x="30" y="196" width="880" height="96" rx="14" fill="#ffffff" stroke="#1a1a1a"/>
 
   <!-- block A（泡泡內） -->
