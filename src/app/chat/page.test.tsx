@@ -70,6 +70,15 @@ async function ask(question: string) {
 }
 
 /**
+ * 打開「顯示處理過程」。開關預設為關閉，凡是要斷言工具歷程 UI 的
+ * 測試都得先呼叫這個，斷言的才是「開啟後看得到什麼」。
+ */
+async function showToolUsages() {
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("switch", { name: /顯示處理過程/ }));
+}
+
+/**
  * 助手回覆文字的斷言輔助。
  *
  * 回覆文字會被包進區塊元素、也可能跨元素切分，`getByText` 這種
@@ -249,6 +258,7 @@ describe("Chat page 工具呼叫歷程", () => {
     );
 
     const { container } = render(<ChatPage />);
+    await showToolUsages();
     await ask("有幾個專案？");
 
     expect(await findAssistantMessage("共 5 個專案。")).toBeInTheDocument();
@@ -275,6 +285,7 @@ describe("Chat page 工具呼叫歷程", () => {
     );
 
     const { container } = render(<ChatPage />);
+    await showToolUsages();
     await ask("查一下");
 
     await waitFor(() =>
@@ -297,6 +308,7 @@ describe("Chat page 工具呼叫歷程", () => {
     );
 
     const { container } = render(<ChatPage />);
+    await showToolUsages();
     await ask("查一下");
 
     expect(await findAssistantMessage("抱歉，查不到。")).toBeInTheDocument();
@@ -318,6 +330,7 @@ describe("Chat page 工具呼叫歷程", () => {
     );
 
     const { container } = render(<ChatPage />);
+    await showToolUsages();
     await ask("畫張圖");
 
     await findAssistantMessage("如圖所示。");
@@ -337,6 +350,7 @@ describe("Chat page 工具呼叫歷程", () => {
     );
 
     const { container } = render(<ChatPage />);
+    await showToolUsages();
     await ask("有幾個專案？");
 
     const bubble = await findAssistantMessage("共 5 個專案。");
@@ -348,7 +362,7 @@ describe("Chat page 工具呼叫歷程", () => {
     expect(container).toBeTruthy();
   });
 
-  it("開關關閉時工具列不渲染，重新開啟後先前歷程完整重現", async () => {
+  it("開關關閉時工具列不渲染，開啟後先前歷程完整重現", async () => {
     stubFetch(async () =>
       ndjsonResponse(
         toolUse("t-1", "mcp__qadb__query"),
@@ -363,8 +377,8 @@ describe("Chat page 工具呼叫歷程", () => {
     await findAssistantMessage("共 5 個專案。");
 
     const toggle = screen.getByRole("switch", { name: /顯示處理過程/ });
-    await user.click(toggle);
 
+    // 預設關閉，工具列本來就不該渲染。
     expect(container.querySelector('[data-slot="tool-usage-list"]')).toBeNull();
     // 純顯示濾鏡：文字不受影響。
     expect(getAssistantMessage("共 5 個專案。")).toBeInTheDocument();
@@ -377,10 +391,12 @@ describe("Chat page 工具呼叫歷程", () => {
     ).not.toBeNull();
   });
 
-  it("開關預設為開啟", async () => {
+  it("開關預設為關閉", async () => {
     render(<ChatPage />);
 
-    expect(screen.getByRole("switch", { name: /顯示處理過程/ })).toBeChecked();
+    expect(
+      screen.getByRole("switch", { name: /顯示處理過程/ })
+    ).not.toBeChecked();
   });
 
   it("中斷後不留下任何進行中的工具", async () => {
@@ -400,6 +416,7 @@ describe("Chat page 工具呼叫歷程", () => {
 
     const user = userEvent.setup();
     const { container } = render(<ChatPage />);
+    await showToolUsages();
     await ask("查一下");
 
     await screen.findByText("mcp__qadb__query");
@@ -467,6 +484,7 @@ describe("Chat page 工具呼叫歷程", () => {
     );
 
     const { container } = render(<ChatPage />);
+    await showToolUsages();
     await ask("畫張圖");
 
     await findAssistantMessage("如圖所示。");
@@ -818,6 +836,7 @@ describe("Chat page 提示訊息", () => {
 
     const user = userEvent.setup();
     const { container } = render(<ChatPage />);
+    await showToolUsages();
     await ask("怎麼算的？");
 
     const bubble = await findAssistantMessage("total = 1 + 2");

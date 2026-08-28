@@ -120,7 +120,7 @@ export default function ChatPage() {
   // sessionId 變更（resume 有可能 fork）不歸零：使用者看到的是同一個對話。
   const [usage, setUsage] = useState<Usage | null>(null);
   // 純顯示濾鏡：關閉期間歷程照常收集，重新打開後完整可見。刻意不做持久化。
-  const [showToolUsages, setShowToolUsages] = useState(true);
+  const [showToolUsages, setShowToolUsages] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
   async function handleSubmit(text: string) {
