@@ -23,8 +23,19 @@ const MAX_SERIES = 6;
  * 圖表容器高度固定、繪圖區約 180–200px，半徑 40（直徑 80px）約佔四成，
  * 仍留得下其他點的空間。與資料列數／數列數上限是同一種東西——
  * 避免 LLM 產生過大的值拖垮圖表可讀性。詳見 docs/adr/0005。
+ *
+ * 與 DEFAULT_BUBBLE_RADIUS_RANGE 一同匯出：這兩個值同時出現在 schema 的
+ * describe、執行期檢查、tool 描述與前端換算四處，散成字面值會在改動時漏改，
+ * 而 tool 描述正是這條契約對 LLM 唯一可見的落點（ADR 0003）。
  */
-const MAX_BUBBLE_RADIUS = 40;
+export const MAX_BUBBLE_RADIUS = 40;
+
+/**
+ * 未提供 range 時前端套用的預設半徑範圍（px）；換算後與 recharts 自身的預設同一量級。
+ *
+ * 定義在此而非前端：tool 描述必須明文寫出這個預設值，LLM 才知道未傳時會發生什麼。
+ */
+export const DEFAULT_BUBBLE_RADIUS_RANGE: readonly [number, number] = [4, 12];
 
 const HEX_COLOR = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 
@@ -518,6 +529,13 @@ export function buildScatterChartResult(input: unknown): ChartToolResult {
   const missingKeys = findMissingCategoryAndSeriesKeys(parsed.value, xKey);
   if (missingKeys) return missingKeys;
 
+  // 參數組合的檢查排在逐列掃描之前：兩者都錯時，先回報成本較低的那個，
+  // LLM 少一輪往返。傳了 range 卻沒傳 sizeKey 時回報錯誤而非靜默忽略：
+  // 靜默忽略會讓 LLM 以為自己成功調了大小。
+  if (range !== undefined && sizeKey === undefined) {
+    return toolError("range 須與 sizeKey 同時提供；只傳 range 時氣泡大小沒有可映射的欄位");
+  }
+
   // X 軸與各數列 key 都是數值軸，逐列檢查同一條規則。
   for (const key of [xKey, ...series.map((s) => s.key)]) {
     for (const [index, row] of data.entries()) {
@@ -529,12 +547,6 @@ export function buildScatterChartResult(input: unknown): ChartToolResult {
         );
       }
     }
-  }
-
-  // 傳了 range 卻沒傳 sizeKey 時回報錯誤而非靜默忽略：
-  // 靜默忽略會讓 LLM 以為自己成功調了大小。
-  if (range !== undefined && sizeKey === undefined) {
-    return toolError("range 須與 sizeKey 同時提供；只傳 range 時氣泡大小沒有可映射的欄位");
   }
 
   if (range !== undefined) {

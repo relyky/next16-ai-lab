@@ -5,12 +5,14 @@ import {
   bubbleAreaRange,
   ChartCard,
   ChartPaletteProvider,
-  DEFAULT_BUBBLE_RADIUS_RANGE,
   formatAxisTick,
   renderSectorLabel,
   seriesColorAt,
 } from "./chart-card";
-import type { ChartDefinition } from "@/lib/charts/chart-tool";
+import {
+  DEFAULT_BUBBLE_RADIUS_RANGE,
+  type ChartDefinition,
+} from "@/lib/charts/chart-tool";
 
 /**
  * 圖表卡片的顏色來自 provider 供應的對照表，單獨渲染會讓每個類別都回退到第一色。

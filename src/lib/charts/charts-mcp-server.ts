@@ -20,7 +20,9 @@ import {
   buildPieChartResult,
   buildRadarChartResult,
   buildScatterChartResult,
+  DEFAULT_BUBBLE_RADIUS_RANGE,
   lineChartInputShape,
+  MAX_BUBBLE_RADIUS,
   pieChartInputShape,
   radarChartInputShape,
   scatterChartInputShape,
@@ -103,8 +105,9 @@ export const scatterChartTool = tool(
     "配色以每組數列一色：可於 series[].color 傳 hex 色碼指定；未提供時前端套用預設配色。" +
     "要在同一張圖上多讀一個維度時，用選填的 sizeKey 指向一個非負數值欄位，" +
     "各點會依該值畫成大小不同的氣泡；未提供 sizeKey 時所有點大小相同。" +
-    "選填的 range 是氣泡的 [最小半徑, 最大半徑]（單位 px，最大半徑上限 40），" +
-    "未提供時前端套用預設 [4, 12]；range 須與 sizeKey 同時提供。",
+    `選填的 range 是氣泡的 [最小半徑, 最大半徑]（單位 px，最大半徑上限 ${MAX_BUBBLE_RADIUS}），` +
+    `未提供時前端套用預設 [${DEFAULT_BUBBLE_RADIUS_RANGE.join(", ")}]；` +
+    "range 須與 sizeKey 同時提供。",
   scatterChartInputShape,
   async (args) => buildScatterChartResult(args)
 );

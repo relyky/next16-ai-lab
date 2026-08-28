@@ -624,8 +624,15 @@ describe("buildScatterChartResult 的氣泡大小", () => {
     expect(errorTextOf(result)).toContain("profit");
   });
 
-  it("sizeKey 為零時視為合法值", () => {
-    const result = buildScatterChartResult({ ...validScatterInput, sizeKey: "profit" });
+  // 零是非負，須放行——這是 `value < 0` 與 `value <= 0` 的分界，
+  // 資料裡必須真的有一列為 0，否則這支測試守不住那條邊界。
+  it("sizeKey 某列為零時視為合法值", () => {
+    const data = [
+      { price: 10, sales: 400, profit: 0 },
+      { price: 20, sales: 250, profit: 50 },
+    ];
+    const result = buildScatterChartResult({ ...validScatterInput, data, sizeKey: "profit" });
+
     expect(result.isError).toBeFalsy();
   });
 
@@ -671,6 +678,20 @@ describe("buildScatterChartResult 的氣泡大小", () => {
     });
 
     expect(result.isError).toBeFalsy();
+  });
+
+  // 半徑 0 或負數畫不出可見的氣泡；schema 層即以 positive 擋下。
+  it.each([
+    ["零", [0, 12]],
+    ["負數", [-4, 12]],
+  ])("range 最小半徑為%s時回傳 isError", (_label, range) => {
+    const result = buildScatterChartResult({
+      ...validScatterInput,
+      sizeKey: "profit",
+      range,
+    });
+
+    expect(result.isError).toBe(true);
   });
 
   // 靜默忽略會讓 LLM 以為自己成功調了大小。

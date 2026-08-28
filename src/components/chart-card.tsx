@@ -39,6 +39,7 @@ import {
   paletteColorFor,
   type ChartPalette,
 } from "@/lib/charts/chart-palette";
+import { DEFAULT_BUBBLE_RADIUS_RANGE } from "@/lib/charts/chart-tool";
 import type {
   CartesianChartDefinition,
   CartesianChartType,
@@ -331,13 +332,6 @@ function RadarChartView({ chart }: { chart: RadarChartDefinition }) {
     </RadarChart>
   );
 }
-
-/**
- * 氣泡半徑的預設範圍（px）；換算後與 recharts 自身的預設同一量級。
- *
- * `range` 選填，未提供時套用此值。詳見 docs/adr/0005。
- */
-export const DEFAULT_BUBBLE_RADIUS_RANGE: [number, number] = [4, 12];
 
 /**
  * 半徑範圍（px）換算成 recharts `ZAxis.range` 需要的面積範圍。
