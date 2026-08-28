@@ -77,7 +77,7 @@
 
   <!-- toolbar row -->
   <rect x="300" y="96" width="520" height="34" fill="#ffffff" stroke="#c8c8c8" stroke-dasharray="3 3"/>
-  <text x="308" y="117" font-size="10" fill="#8E8E8E">◍ 模型：haiku ｜ # session：0b7e…</text>
+  <text x="308" y="117" font-size="10" fill="#8E8E8E">◍ haiku ｜ # 0b7e4c31-9a2f-…</text>
   <rect x="700" y="105" width="30" height="16" rx="8" fill="#eeeeee" stroke="#c8c8c8"/>
   <circle cx="708" cy="113" r="6" fill="#ffffff" stroke="#c8c8c8"/>
   <text x="738" y="118" font-size="12" fill="#6b6b6b">顯示處理過程</text>
@@ -371,6 +371,7 @@
 
 <h2>9. 工具列的唯讀狀態</h2>
 <p>工具列左側顯示兩項唯讀資訊：本輪所用的<strong>模型</strong>與<strong>session 識別碼</strong>。它們的受眾是開發者——模型決定回覆品質與計價，session 識別碼是把畫面上這段對話對回後端日誌的唯一鑰匙。</p>
+<p><strong>只有圖示與值，不加文字標籤。</strong>兩個值的形狀本身就足以辨識——模型是短的別名、session 是長的 UUID，配上各自的圖示已無從混淆；補上「模型：」「session：」反而讓這一列的字數翻倍，把一列本該掃過去的次要資訊變成要閱讀的內容。省下的寬度留給 sessionId，窄視窗下它才晚一點被截斷。</p>
 
 <figure>
 <svg viewBox="0 0 1120 150" role="img" aria-label="工具列的兩種狀態">
@@ -388,7 +389,7 @@
   <rect x="890" y="124" width="30" height="16" rx="8" fill="#eeeeee" stroke="#c8c8c8"/>
   <circle cx="898" cy="132" r="6" fill="#ffffff" stroke="#c8c8c8"/>
   <text x="928" y="137" font-size="12" fill="#6b6b6b">顯示處理過程</text>
-  <text x="20" y="137" font-size="11" fill="#8E8E8E">◍ 模型：haiku ｜ # session：0b7e4c31-9a2f-4d05-8e11-6c7a3f9b2d84</text>
+  <text x="20" y="137" font-size="11" fill="#8E8E8E">◍ haiku ｜ # 0b7e4c31-9a2f-4d05-8e11-6c7a3f9b2d84</text>
 </svg>
 <figcaption>兩項資訊同時出現於第一輪串流開始時；此前整項不渲染，開關仍靠右不移位。</figcaption>
 </figure>
