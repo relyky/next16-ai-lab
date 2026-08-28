@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import ChatPage from "./page";
 
@@ -1115,6 +1115,133 @@ describe("Chat page 工具列狀態", () => {
 
     await waitFor(() =>
       expect(sessionInfo()!.textContent).toContain("s-2-forked")
+    );
+  });
+});
+
+
+describe("Chat page 切頁往返", () => {
+  /**
+   * 導航離開再回來，對元件而言就是卸載後重新渲染——這裡以此表達切頁往返。
+   * 對話狀態住在 store，故重新渲染後看到的應是原本那段對話。
+   */
+  function leaveAndComeBack() {
+    cleanup();
+    return render(<ChatPage />);
+  }
+
+  /** 工具列左側的唯讀狀態區；尚無值時整個節點不存在。 */
+  function sessionInfo() {
+    return document.querySelector<HTMLElement>('[data-slot="session-info"]');
+  }
+
+  it("切頁往返後，訊息、模型與 sessionId、累計用量都還在", async () => {
+    stubFetch(async () =>
+      ndjsonResponse(
+        { type: "session", sessionId: "s-1", model: "haiku" },
+        { type: "usage", in: 1200, cache_c: 30, cache_r: 400, out: 88 },
+        { type: "done", result: "本季營收成長。", sessionId: "s-1" }
+      )
+    );
+
+    render(<ChatPage />);
+    await ask("這季營收如何？");
+    await findAssistantMessage("本季營收成長。");
+
+    leaveAndComeBack();
+
+    expect(hasAssistantText("本季營收成長。")).toBe(true);
+    expect(screen.getByText("這季營收如何？")).toBeInTheDocument();
+    expect(sessionInfo()!.textContent).toContain("haiku");
+    expect(sessionInfo()!.textContent).toContain("s-1");
+    expect(
+      screen.getByText(/累計消耗 in 1,200 \| cache_c 30 \| cache_r 400 \| out 88/)
+    ).toBeInTheDocument();
+  });
+
+  it("切頁往返後追問，請求帶上先前的 sessionId", async () => {
+    const fetchMock = stubFetch(async () =>
+      ndjsonResponse(
+        { type: "session", sessionId: "s-1", model: "haiku" },
+        { type: "done", result: "第一則。", sessionId: "s-1" }
+      )
+    );
+
+    render(<ChatPage />);
+    await ask("第一問");
+    await findAssistantMessage("第一則。");
+
+    leaveAndComeBack();
+    fetchMock.mockImplementation(async () =>
+      ndjsonResponse({ type: "done", result: "第二則。", sessionId: "s-1" })
+    );
+    await ask("追問");
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toMatchObject({
+      prompt: "追問",
+      sessionId: "s-1",
+    });
+    expect(await findAssistantMessage("第二則。")).toBeInTheDocument();
+  });
+
+  it("切頁往返後，圖表與工具呼叫歷程仍在原本的回覆裡", async () => {
+    stubFetch(async () =>
+      ndjsonResponse(
+        { type: "tool_use", id: "t-1", name: "mcp__charts__line" },
+        { type: "tool_done", id: "t-1", ok: true },
+        chartEvent("line", "月營收趨勢"),
+        { type: "done", result: "如圖所示。", sessionId: "s-1" }
+      )
+    );
+
+    render(<ChatPage />);
+    await ask("月營收趨勢如何？");
+    await findAssistantMessage("如圖所示。");
+
+    const { container } = leaveAndComeBack();
+    await showToolUsages();
+
+    const bubble = getAssistantMessage("如圖所示。");
+    expect(bubble.textContent).toContain("mcp__charts__line");
+    expect(screen.getByText("月營收趨勢")).toBeInTheDocument();
+    expect(container.querySelectorAll('[data-slot="chart-card"]')).toHaveLength(1);
+  });
+
+  it("切頁往返後，歷史訊息不重播文字浮現動畫", async () => {
+    stubFetch(async () =>
+      ndjsonResponse({ type: "done", result: "已經回答完了。", sessionId: "s-1" })
+    );
+
+    render(<ChatPage />);
+    await ask("這季營收如何？");
+    await findAssistantMessage("已經回答完了。");
+
+    leaveAndComeBack();
+
+    expect(isAnimating(getAssistantMessage("已經回答完了。"))).toBe(false);
+  });
+
+  it("「顯示處理過程」在切頁往返後回到預設的關閉", async () => {
+    stubFetch(async () =>
+      ndjsonResponse(
+        { type: "tool_use", id: "t-1", name: "mcp__charts__line" },
+        { type: "tool_done", id: "t-1", ok: true },
+        { type: "done", result: "好的。", sessionId: "s-1" }
+      )
+    );
+
+    render(<ChatPage />);
+    await ask("這季營收如何？");
+    await findAssistantMessage("好的。");
+    await showToolUsages();
+    expect(getAssistantMessage("好的。").textContent).toContain("mcp__charts__line");
+
+    leaveAndComeBack();
+
+    expect(screen.getByRole("switch", { name: /顯示處理過程/ })).not.toBeChecked();
+    expect(getAssistantMessage("好的。").textContent).not.toContain(
+      "mcp__charts__line"
     );
   });
 });

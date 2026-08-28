@@ -2,9 +2,14 @@ import '@testing-library/jest-dom/vitest'
 import { cleanup } from '@testing-library/react'
 import { afterEach } from 'vitest'
 
+import { resetChatStoreForTest } from '@/lib/chat-store'
+
 // vitest 未啟用 globals，RTL 不會自動註冊 cleanup，需手動掛上。
 afterEach(() => {
   cleanup()
+  // 對話狀態住在 module-scope 的 store，卸載不會重置它；不顯式歸零的話
+  // 上一個測試的訊息與 sessionId 會殘留到下一個測試。
+  resetChatStoreForTest()
 })
 
 // jsdom 沒有實作 Element.prototype.scrollTo，而 Streamdown 的程式碼區塊
