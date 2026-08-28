@@ -77,10 +77,11 @@
 
   <!-- toolbar row -->
   <rect x="300" y="96" width="520" height="34" fill="#ffffff" stroke="#c8c8c8" stroke-dasharray="3 3"/>
+  <text x="308" y="117" font-size="10" fill="#8E8E8E">◍ 模型：haiku ｜ # session：0b7e…</text>
   <rect x="700" y="105" width="30" height="16" rx="8" fill="#eeeeee" stroke="#c8c8c8"/>
   <circle cx="708" cy="113" r="6" fill="#ffffff" stroke="#c8c8c8"/>
   <text x="738" y="118" font-size="12" fill="#6b6b6b">顯示處理過程</text>
-  <text x="308" y="118" font-size="11" fill="#0f5c8c">① 工具列（預設關閉）</text>
+  <text x="308" y="90" font-size="11" fill="#0f5c8c">① 工具列（左：唯讀狀態　右：開關，預設關閉）</text>
 
   <!-- message list -->
   <rect x="300" y="140" width="520" height="360" fill="#ffffff" stroke="#c8c8c8"/>
@@ -119,7 +120,7 @@
   <tr><th>區塊</th><th>元件</th><th>負責什麼</th></tr>
   <tr><td>導覽列</td><td><code>NavBar</code>（layout 提供）</td><td>站台層級的頁面切換，標示當前頁。Chat 頁不介入</td></tr>
   <tr><td>內容欄</td><td><code>ChatPage</code></td><td>限制閱讀寬度並置中，持有本頁全部狀態（訊息、session、用量、載入中）</td></tr>
-  <tr><td>① 工具列</td><td><code>Switch</code></td><td>切換工具歷程的顯示與否。純顯示濾鏡，不影響資料收集</td></tr>
+  <tr><td>① 工具列</td><td><code>SessionInfo</code>／<code>Switch</code></td><td>左側顯示本輪的模型與 session 識別碼（唯讀，見 §9）；右側切換工具歷程的顯示與否——純顯示濾鏡，不影響資料收集</td></tr>
   <tr><td>② 訊息列表</td><td><code>UserMessage</code>／<code>AssistantMessage</code></td><td>依序渲染對話。<strong>唯一會長高的區段</strong>——它吸收剩餘高度，才能把底部區塊壓在視窗底</td></tr>
   <tr><td>③ 底部區塊</td><td><code>ChatPage</code> 內的 wrapper</td><td>以 <strong><code>sticky</code></strong> 把 ③a 與 ③b <strong>一起</strong>釘在視窗底並遮擋捲動內容。釘底責任刻意放在這一層而非輸入列——否則用量列會被留在上面隨內容捲走</td></tr>
   <tr><td>③a 用量列</td><td><code>UsageLine</code></td><td>顯示本輪 session 的累計用量。尚無用量時整行不存在（見 §5）</td></tr>
@@ -367,6 +368,38 @@
   <li><strong>訊息語意</strong>：使用者與助手以位置（左／右）＋色塊／卡片雙重區分，非僅靠顏色。</li>
   <li><strong>用量數字</strong>：顯示千分位（如 <code>11,604</code>），長數字才讀得出量級。</li>
 </ul>
+
+<h2>9. 工具列的唯讀狀態</h2>
+<p>工具列左側顯示兩項唯讀資訊：本輪所用的<strong>模型</strong>與<strong>session 識別碼</strong>。它們的受眾是開發者——模型決定回覆品質與計價，session 識別碼是把畫面上這段對話對回後端日誌的唯一鑰匙。</p>
+
+<figure>
+<svg viewBox="0 0 1120 150" role="img" aria-label="工具列的兩種狀態">
+  <rect x="0" y="0" width="1120" height="150" fill="#ffffff"/>
+
+  <text x="20" y="24" font-size="13" font-weight="600">第一輪串流開始前</text>
+  <line x1="20" y1="34" x2="1100" y2="34" stroke="#1a1a1a" stroke-width="1.5"/>
+  <rect x="890" y="46" width="30" height="16" rx="8" fill="#eeeeee" stroke="#c8c8c8"/>
+  <circle cx="898" cy="54" r="6" fill="#ffffff" stroke="#c8c8c8"/>
+  <text x="928" y="59" font-size="12" fill="#6b6b6b">顯示處理過程</text>
+  <text x="20" y="59" font-size="11.5" fill="#9a9a9a">（整項不渲染——不是留空位，是沒有這個節點）</text>
+
+  <text x="20" y="102" font-size="13" font-weight="600">收到 session 事件之後</text>
+  <line x1="20" y1="112" x2="1100" y2="112" stroke="#1a1a1a" stroke-width="1.5"/>
+  <rect x="890" y="124" width="30" height="16" rx="8" fill="#eeeeee" stroke="#c8c8c8"/>
+  <circle cx="898" cy="132" r="6" fill="#ffffff" stroke="#c8c8c8"/>
+  <text x="928" y="137" font-size="12" fill="#6b6b6b">顯示處理過程</text>
+  <text x="20" y="137" font-size="11" fill="#8E8E8E">◍ 模型：haiku ｜ # session：0b7e4c31-9a2f-4d05-8e11-6c7a3f9b2d84</text>
+</svg>
+<figcaption>兩項資訊同時出現於第一輪串流開始時；此前整項不渲染，開關仍靠右不移位。</figcaption>
+</figure>
+
+<table>
+  <tr><th>項目</th><th>來源</th><th>設計理由</th></tr>
+  <tr><td>模型</td><td>後端隨 <code>session</code> 事件送出</td><td>模型設定只存在於伺服器端（<code>server-config.ts</code> 刻意<strong>不加 <code>NEXT_PUBLIC_</code> 前綴</strong>，避免設定被打包進 client bundle）。改由串流事件帶出，前端拿得到要顯示的值，設定本身仍不外洩，也不必為此多開一支端點。整輪不變，故 <code>done</code> 不重送</td></tr>
+  <tr><td>session 識別碼</td><td>同上，前端已持有</td><td><strong>完整顯示</strong>而非截斷：這串值的用途就是貼進日誌查詢，截短了就查不到。寬度不足時由 CSS 以省略號截斷，開關那一側不被壓縮</td></tr>
+</table>
+
+<p>兩項的空狀態沿用<strong>用量列的慣例</strong>（見 §5）：尚無值時整項不存在，而非顯示佔位符或 <code>—</code>。後端若 fork 出新的 session，此處跟著更新為新值——與用量列不同，這裡顯示的是「現在是哪個 session」，不是累計。</p>
 
 </main>
 </body>

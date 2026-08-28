@@ -405,7 +405,7 @@ describe("Chat page 工具呼叫歷程", () => {
         [
           new TextEncoder().encode(
             ndjson(
-              { type: "session", sessionId: "s-1" },
+              { type: "session", sessionId: "s-1", model: "haiku" },
               toolUse("t-1", "mcp__qadb__query")
             )
           ),
@@ -581,7 +581,7 @@ describe("Chat page", () => {
         [
           new TextEncoder().encode(
             ndjson(
-              { type: "session", sessionId: "s-1" },
+              { type: "session", sessionId: "s-1", model: "haiku" },
               { type: "delta", text: "本季營收" }
             )
           ),
@@ -611,7 +611,7 @@ describe("Chat page", () => {
             [
               new TextEncoder().encode(
                 ndjson(
-                  { type: "session", sessionId: "s-1" },
+                  { type: "session", sessionId: "s-1", model: "haiku" },
                   { type: "delta", text: "本季營收" }
                 )
               ),
@@ -691,7 +691,7 @@ describe("Chat page", () => {
   });
 
   it("只收到 session 事件就斷線時顯示錯誤，不會靜默無反應", async () => {
-    stubFetch(async () => ndjsonResponse({ type: "session", sessionId: "s-1" }));
+    stubFetch(async () => ndjsonResponse({ type: "session", sessionId: "s-1", model: "haiku" }));
 
     render(<ChatPage />);
     await ask("這季營收如何？");
@@ -924,7 +924,7 @@ describe("Chat page 用量累計", () => {
   it("sessionId 變更（fork）時不歸零", async () => {
     stubFetch(async () =>
       ndjsonResponse(
-        { type: "session", sessionId: "s-1" },
+        { type: "session", sessionId: "s-1", model: "haiku" },
         usageEvent({ out: 40 }),
         { type: "done", result: "好的。", sessionId: "s-1" }
       )
@@ -937,7 +937,7 @@ describe("Chat page 用量累計", () => {
     // 第二輪 resume 後 fork 成新的 session id：使用者仍在同一個對話視窗。
     stubFetch(async () =>
       ndjsonResponse(
-        { type: "session", sessionId: "s-2-forked" },
+        { type: "session", sessionId: "s-2-forked", model: "haiku" },
         usageEvent({ out: 2 }),
         { type: "done", result: "好的。", sessionId: "s-2-forked" }
       )
@@ -1060,6 +1060,61 @@ describe("Chat page 串流動畫", () => {
     await findAssistantMessage("本季營收成長 12%。");
     await waitFor(() =>
       expect(assistantBubbles().some(isAnimating)).toBe(false)
+    );
+  });
+});
+
+describe("Chat page 工具列狀態", () => {
+  /** 工具列左側的唯讀狀態區；尚無值時整個節點不存在。 */
+  function sessionInfo() {
+    return document.querySelector<HTMLElement>('[data-slot="session-info"]');
+  }
+
+  it("第一次送出前不渲染模型與 session 資訊", () => {
+    render(<ChatPage />);
+
+    expect(sessionInfo()).toBeNull();
+  });
+
+  it("收到 session 事件後顯示模型名稱與完整 sessionId", async () => {
+    stubFetch(async () =>
+      ndjsonResponse(
+        { type: "session", sessionId: "s-1", model: "haiku" },
+        { type: "done", result: "好的。", sessionId: "s-1" }
+      )
+    );
+
+    render(<ChatPage />);
+    await ask("這季營收如何？");
+
+    await waitFor(() => expect(sessionInfo()).not.toBeNull());
+    // sessionId 完整顯示（截斷交給 CSS），對日誌時才對得起來。
+    expect(sessionInfo()!.textContent).toContain("haiku");
+    expect(sessionInfo()!.textContent).toContain("s-1");
+  });
+
+  it("sessionId 變更（fork）時更新為新值", async () => {
+    stubFetch(async () =>
+      ndjsonResponse(
+        { type: "session", sessionId: "s-1", model: "haiku" },
+        { type: "done", result: "好的。", sessionId: "s-1" }
+      )
+    );
+
+    render(<ChatPage />);
+    await ask("第一問");
+    await waitFor(() => expect(sessionInfo()!.textContent).toContain("s-1"));
+
+    stubFetch(async () =>
+      ndjsonResponse(
+        { type: "session", sessionId: "s-2-forked", model: "haiku" },
+        { type: "done", result: "好的。", sessionId: "s-2-forked" }
+      )
+    );
+    await ask("第二問");
+
+    await waitFor(() =>
+      expect(sessionInfo()!.textContent).toContain("s-2-forked")
     );
   });
 });

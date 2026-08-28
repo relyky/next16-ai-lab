@@ -2,6 +2,8 @@
 
 import { useMemo, useRef, useState } from "react";
 
+import { Bot, Hash } from "lucide-react";
+
 import { AssistantMarkdown } from "@/components/assistant-markdown";
 import { ChartCard, ChartPaletteProvider } from "@/components/chart-card";
 import { ChatInput } from "@/components/chat-input";
@@ -111,9 +113,51 @@ function UsageLine({ usage }: { usage: Usage }) {
   );
 }
 
+/**
+ * 工具列左側的唯讀狀態：本輪所用的模型與 session 識別碼。
+ *
+ * 兩者都在第一輪串流開始時才由 session 事件帶到，此前整項不渲染
+ * —— 沿用用量列的慣例：沒有值就沒有這個節點，而非顯示佔位符。
+ */
+function SessionInfo({
+  model,
+  sessionId,
+}: {
+  model: string | null;
+  sessionId: string | null;
+}) {
+  if (!model && !sessionId) return null;
+
+  return (
+    <div
+      data-slot="session-info"
+      // min-w-0 讓這一側成為被壓縮的一方，sessionId 才有得截斷。
+      className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground"
+    >
+      {model ? (
+        <span className="flex shrink-0 items-center gap-1">
+          <Bot className="size-3.5 shrink-0" aria-hidden />
+          <span className="font-mono">{model}</span>
+        </span>
+      ) : null}
+      {model && sessionId ? <span className="shrink-0">|</span> : null}
+      {sessionId ? (
+        <span className="flex min-w-0 items-center gap-1">
+          <Hash className="size-3.5 shrink-0" aria-hidden />
+          {/* 完整顯示以便對日誌；寬度不足時尾端省略。 */}
+          <span className="truncate font-mono">{sessionId}</span>
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
 export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  // 模型由後端隨 session 事件帶到（設定不進 client bundle）。整輪不變，
+  // 與 sessionId 同樣不歸零：使用者看到的是同一個對話。
+  const [model, setModel] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   // 累加在前端做：後端每次請求各自呼叫 query()、維持無狀態，前端才是
   // 「這一輪 session」的邊界持有者。null 代表尚無任何用量，不渲染該行。
@@ -202,6 +246,7 @@ export default function ChatPage() {
           // 中斷時不會有 done，先記住 session id 才能接續下一則訊息。
           // session 不是回覆內容，單獨收到它不足以視為有效回應。
           setSessionId(event.sessionId);
+          setModel(event.model);
           return;
         }
         handledAny = true;
@@ -305,14 +350,18 @@ export default function ChatPage() {
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-4">
-      <label className="flex items-center gap-2 self-end pt-4 text-sm text-muted-foreground">
-        {/* base-ui 的 onCheckedChange 還帶第二個參數，顯式接第一個才不會誤傳。 */}
-        <Switch
-          checked={showToolUsages}
-          onCheckedChange={(checked) => setShowToolUsages(checked)}
-        />
-        顯示處理過程
-      </label>
+      {/* 左側為唯讀狀態、右側為開關；狀態不存在時開關仍靠右不移位。 */}
+      <div className="flex items-center justify-between gap-4 pt-4">
+        <SessionInfo model={model} sessionId={sessionId} />
+        <label className="flex shrink-0 items-center gap-2 text-sm text-muted-foreground">
+          {/* base-ui 的 onCheckedChange 還帶第二個參數，顯式接第一個才不會誤傳。 */}
+          <Switch
+            checked={showToolUsages}
+            onCheckedChange={(checked) => setShowToolUsages(checked)}
+          />
+          顯示處理過程
+        </label>
+      </div>
 
       <div className="flex flex-1 flex-col gap-4 py-8">
         {messages.length === 0 && (

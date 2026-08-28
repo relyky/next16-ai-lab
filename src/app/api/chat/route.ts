@@ -103,7 +103,11 @@ export async function POST(request: Request) {
 
           // 中斷時尚未收到 done，先送出 session id 讓前端仍能接續下一則訊息。
           if (message.type === "system" && message.subtype === "init") {
-            send({ type: "session", sessionId: message.session_id });
+            send({
+              type: "session",
+              sessionId: message.session_id,
+              model: config.model,
+            });
             continue;
           }
 

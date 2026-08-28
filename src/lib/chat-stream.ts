@@ -13,8 +13,13 @@ export type Usage = {
 
 /** `/api/chat` 的 NDJSON 串流協定：每行一個事件，前後端共用。 */
 export type ChatStreamEvent =
-  /** 本次對話的 session id，串流一開始就送出（中斷時也已取得，可用於接續） */
-  | { type: "session"; sessionId: string }
+  /**
+   * 本次對話的 session id 與所用模型，串流一開始就送出
+   * （中斷時也已取得，可用於接續）。
+   * `model` 隨事件帶出而非走 `NEXT_PUBLIC_` 環境變數：伺服器設定不外洩到
+   * client bundle，前端仍拿得到要顯示的值。整輪不變，故 `done` 不重送。
+   */
+  | { type: "session"; sessionId: string; model: string }
   /** 逐字增量 */
   | { type: "delta"; text: string }
   /** charts tool 產生的圖表定義，依產生順序送出，前端接在目前文字之後渲染 */
