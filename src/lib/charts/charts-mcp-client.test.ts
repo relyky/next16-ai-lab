@@ -27,10 +27,47 @@ async function connect() {
  * 兩者互補——handler 對了但沒註冊成功，只有這支測得出來。
  */
 describe("charts MCP server 經真實 MCP client 呼叫", () => {
-  it("列出四個 tool", async () => {
+  it("列出五個 tool", async () => {
     const client = await connect();
     const names = (await client.listTools()).tools.map((t) => t.name).sort();
-    expect(names).toEqual(["area_chart", "bar_chart", "line_chart", "pie_chart"]);
+    expect(names).toEqual([
+      "area_chart",
+      "bar_chart",
+      "line_chart",
+      "pie_chart",
+      "radar_chart",
+    ]);
+  });
+
+  /**
+   * 雷達圖的角度軸叫 angleKey 而非 xKey——這條契約對 LLM 唯一可見的落點
+   * 是 inputSchema，只有走完整協定拿得到。
+   */
+  it("radar_chart 的 inputSchema 含 angleKey 且不含 xKey", async () => {
+    const client = await connect();
+    const found = (await client.listTools()).tools.find((t) => t.name === "radar_chart");
+
+    expect(found?.inputSchema.properties).toHaveProperty("angleKey");
+    expect(found?.inputSchema.properties).not.toHaveProperty("xKey");
+  });
+
+  it("radar_chart 回傳 type 為 radar 的圖表定義 JSON", async () => {
+    const client = await connect();
+    const radarArgs = {
+      data: [
+        { aspect: "服務", 北店: 80 },
+        { aspect: "價格", 北店: 60 },
+      ],
+      angleKey: "aspect",
+      series: [{ key: "北店" }],
+    };
+    const r = (await client.callTool({
+      name: "radar_chart",
+      arguments: radarArgs,
+    })) as { isError?: boolean; content: { text: string }[] };
+
+    expect(r.isError).toBeFalsy();
+    expect(JSON.parse(r.content[0].text)).toEqual({ type: "radar", ...radarArgs });
   });
 
   /**

@@ -105,3 +105,40 @@ describe("paletteColorFor", () => {
     expect(paletteColorFor(new Map(), "沒見過")).toBe("var(--chart-1)");
   });
 });
+
+/**
+ * 雷達圖有數列，自動落進 `categoryNamesOf` 的既有分支且語意正確——
+ * 名稱→色序對照表因此不需要為它修改。這支測試就是那個「不需修改」的證明。
+ */
+describe("雷達圖沿用既有的數列取色機制", () => {
+  const radarChart: ChartDefinition = {
+    type: "radar",
+    data: [
+      { aspect: "服務", mfg: 80, sales: 65 },
+      { aspect: "價格", mfg: 60, sales: 90 },
+    ],
+    angleKey: "aspect",
+    series: [
+      { key: "mfg", label: "製造部" },
+      { key: "sales", label: "銷售部" },
+    ],
+  };
+
+  it("同一個類別名稱在雷達圖與長條圖之間延用同一顏色", () => {
+    const barChart: ChartDefinition = { ...lineChart, type: "bar" };
+    const charts = [barChart, radarChart];
+
+    // 色序由首次出現順序決定，長條圖在前，兩張圖的同名數列因此同色。
+    expect(colorOf(charts, "銷售部")).toBe("var(--chart-1)");
+    expect(colorOf(charts, "製造部")).toBe("var(--chart-2)");
+    expect(colorOf([radarChart], "製造部")).toBe("var(--chart-1)");
+  });
+
+  it("雷達圖的類別名稱取自數列的 label ?? key", () => {
+    const noLabel: ChartDefinition = {
+      ...radarChart,
+      series: [{ key: "mfg" }],
+    };
+    expect(colorOf([noLabel], "mfg")).toBe("var(--chart-1)");
+  });
+});

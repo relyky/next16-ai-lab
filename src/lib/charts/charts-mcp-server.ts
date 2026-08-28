@@ -18,8 +18,10 @@ import {
   buildBarChartResult,
   buildLineChartResult,
   buildPieChartResult,
+  buildRadarChartResult,
   lineChartInputShape,
   pieChartInputShape,
+  radarChartInputShape,
 } from "./chart-tool";
 
 /** 三個笛卡兒圖 tool 共通的用法說明；各自的差異寫在自己的描述裡。 */
@@ -67,8 +69,30 @@ export const pieChartTool = tool(
   async (args) => buildPieChartResult(args)
 );
 
+/**
+ * 雷達圖：多維度指標的整體輪廓比較。
+ *
+ * 半徑軸不標刻度數字這件事不寫進描述——那是前端的呈現取捨，
+ * 與 LLM 該傳什麼參數無關；描述只寫呼叫端真正需要知道的東西。
+ */
+export const radarChartTool = tool(
+  "radar_chart",
+  "把查到的資料轉成雷達圖定義，適合比較多個受評對象在數個評比面向上的整體輪廓，" +
+    "一眼看出誰在哪些面向強、哪些面向弱。" +
+    "angleKey 指定作為角度軸（各評比面向）的欄位，series 指定要畫的數值欄位（每個受評對象一組）。" +
+    "配色以每組數列一色：可於 series[].color 傳 hex 色碼指定；未提供時前端套用預設配色。",
+  radarChartInputShape,
+  async (args) => buildRadarChartResult(args)
+);
+
 /** 匯出成陣列，讓「有哪些 tool」在測試與註冊處是同一份來源。 */
-export const chartTools = [lineChartTool, barChartTool, areaChartTool, pieChartTool];
+export const chartTools = [
+  lineChartTool,
+  barChartTool,
+  areaChartTool,
+  pieChartTool,
+  radarChartTool,
+];
 
 /** 掛進 chat route 的 `mcpServers.charts`；工具全名為 `mcp__charts__*`。 */
 export function createChartsMcpServer() {

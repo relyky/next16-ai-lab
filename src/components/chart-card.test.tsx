@@ -433,3 +433,108 @@ describe("renderSectorLabel", () => {
     expect(renderSectorLabel({ name: "原料" })).toBeNull();
   });
 });
+
+const radarChart: ChartDefinition = {
+  type: "radar",
+  title: "分店評比",
+  data: [
+    { aspect: "服務", 北店: 80, 南店: 65 },
+    { aspect: "價格", 北店: 60, 南店: 90 },
+    { aspect: "品質", 北店: 75, 南店: 70 },
+  ],
+  angleKey: "aspect",
+  series: [
+    { key: "北店", label: "北店" },
+    { key: "南店", label: "南店" },
+  ],
+};
+
+const singleSeriesRadar: ChartDefinition = {
+  ...radarChart,
+  series: [{ key: "北店", label: "北店" }],
+};
+
+describe("ChartCard 雷達圖", () => {
+  it("渲染雷達區域、極座標網格與角度軸", () => {
+    const { container } = render(<ChartCard chart={radarChart} />);
+
+    expect(container.querySelector(".recharts-radar")).not.toBeNull();
+    expect(container.querySelector(".recharts-polar-grid")).not.toBeNull();
+    expect(container.querySelector(".recharts-polar-angle-axis")).not.toBeNull();
+  });
+
+  it("多組數列各自渲染成一塊區域", () => {
+    const { container } = render(<ChartCard chart={radarChart} />);
+    expect(container.querySelectorAll(".recharts-radar")).toHaveLength(2);
+  });
+
+  // 角度軸的刻度文字是 angleKey 在畫面上唯一驗得到的落點。
+  it("角度軸標出各評比面向的名稱", () => {
+    const { container } = render(<ChartCard chart={radarChart} />);
+    const labels = Array.from(
+      container.querySelectorAll(".recharts-polar-angle-axis-tick-value")
+    ).map((el) => el.textContent);
+
+    expect(labels).toEqual(["服務", "價格", "品質"]);
+  });
+
+  /**
+   * 半徑軸不標刻度數字：雷達圖的讀法是形狀輪廓比較而非讀絕對值，
+   * 數字疊在網格上可讀性差；實際數值仍可由 tooltip 取得。
+   */
+  it("半徑軸不渲染刻度數字", () => {
+    const { container } = render(<ChartCard chart={radarChart} />);
+    expect(
+      container.querySelectorAll(".recharts-polar-radius-axis-tick-value")
+    ).toHaveLength(0);
+  });
+
+  it("多數列時渲染 Legend 並列出各數列 label", () => {
+    const { container } = render(<ChartCard chart={radarChart} />);
+
+    expect(container.querySelector(".recharts-legend-wrapper")).not.toBeNull();
+    expect(screen.getByText("北店")).toBeInTheDocument();
+    expect(screen.getByText("南店")).toBeInTheDocument();
+  });
+
+  it("單一數列時不渲染 Legend", () => {
+    const { container } = render(<ChartCard chart={singleSeriesRadar} />);
+    expect(container.querySelector(".recharts-legend-wrapper")).toBeNull();
+  });
+
+  it("數列顏色套用到區域上（指定色優先，其餘 fallback）", () => {
+    const { container } = render(
+      <ChartCard
+        chart={{
+          ...radarChart,
+          series: [{ key: "北店" }, { key: "南店", color: "#ff0000" }],
+        }}
+      />
+    );
+
+    // `.recharts-radar-polygon` 是外層 <g>；實際著色的是它內部的 <path>。
+    const fills = Array.from(
+      container.querySelectorAll(".recharts-radar-polygon path.recharts-polygon")
+    ).map((el) => el.getAttribute("fill"));
+    expect([...fills].sort()).toEqual(["#ff0000", "var(--chart-1)"]);
+  });
+
+  it("渲染 tooltip 容器", () => {
+    const { container } = render(<ChartCard chart={radarChart} />);
+    expect(container.querySelector(".recharts-tooltip-wrapper")).not.toBeNull();
+  });
+
+  // 雷達圖是極座標，笛卡兒的軸線與格線在此沒有意義。
+  it("不渲染笛卡兒軸線與格線", () => {
+    const { container } = render(<ChartCard chart={radarChart} />);
+
+    expect(container.querySelector(".recharts-cartesian-grid")).toBeNull();
+    expect(container.querySelector(".recharts-xAxis")).toBeNull();
+    expect(container.querySelector(".recharts-yAxis")).toBeNull();
+  });
+
+  it("顯示圖表標題", () => {
+    render(<ChartCard chart={radarChart} />);
+    expect(screen.getByText("分店評比")).toBeInTheDocument();
+  });
+});

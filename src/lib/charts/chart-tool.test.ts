@@ -6,6 +6,7 @@ import {
   buildBarChartResult,
   buildLineChartResult,
   buildPieChartResult,
+  buildRadarChartResult,
 } from "./chart-tool";
 
 const validInput = {
@@ -307,5 +308,112 @@ describe("buildPieChartResult", () => {
       { item: "人力", amount: 80 },
     ];
     expect(buildPieChartResult({ ...validPieInput, data }).isError).toBeFalsy();
+  });
+});
+
+/**
+ * 雷達圖：類別軸 × 多數列，與笛卡兒圖同構，只是軸換成極座標。
+ * 共通的驗證規則走同一份 schema 常數與同一份存在性檢查，此處驗其確實接上。
+ */
+const validRadarInput = {
+  title: "分店評比",
+  data: [
+    { aspect: "服務", 北店: 80, 南店: 65 },
+    { aspect: "價格", 北店: 60, 南店: 90 },
+    { aspect: "品質", 北店: 75, 南店: 70 },
+  ],
+  angleKey: "aspect",
+  series: [
+    { key: "北店" },
+    { key: "南店", color: "#ff0000" },
+  ],
+};
+
+describe("buildRadarChartResult", () => {
+  it("正常輸入回傳 type 為 radar 的圖表定義 JSON", () => {
+    const result = buildRadarChartResult(validRadarInput);
+
+    expect(result.isError).toBeFalsy();
+    expect(chartOf(result)).toEqual({ type: "radar", ...validRadarInput });
+  });
+
+  it("title 未提供時不出現在圖表定義中", () => {
+    const noTitle = {
+      data: validRadarInput.data,
+      angleKey: validRadarInput.angleKey,
+      series: validRadarInput.series,
+    };
+    expect(chartOf(buildRadarChartResult(noTitle))).not.toHaveProperty("title");
+  });
+
+  // 錯誤訊息的標籤須是 angleKey 而非 xKey——雷達圖沒有 X 軸，
+  // 訊息說 xKey 會讓 LLM 去找一個它根本沒傳的欄位。
+  it("angleKey 不存在於 data 時回傳 isError 並附上可用欄位", () => {
+    const result = buildRadarChartResult({ ...validRadarInput, angleKey: "面向" });
+
+    expect(result.isError).toBe(true);
+    const message = errorTextOf(result);
+    expect(message).toContain("angleKey");
+    expect(message).toContain("面向");
+    expect(message).toContain("aspect");
+  });
+
+  it("series 的欄位不存在於 data 時回傳 isError 並附上可用欄位", () => {
+    const result = buildRadarChartResult({
+      ...validRadarInput,
+      series: [{ key: "東店" }],
+    });
+
+    expect(result.isError).toBe(true);
+    const message = errorTextOf(result);
+    expect(message).toContain("東店");
+    expect(message).toContain("aspect");
+  });
+
+  // 雷達圖沒有 X 軸：誤傳笛卡兒圖的形狀應在驗證階段就被擋下。
+  it("誤傳笛卡兒圖的 xKey 時回傳驗證錯誤", () => {
+    expect(buildRadarChartResult(validInput).isError).toBe(true);
+  });
+
+  it("傳入未知欄位時回傳 isError 並指出該欄位", () => {
+    const result = buildRadarChartResult({ ...validRadarInput, bogus: true });
+
+    expect(result.isError).toBe(true);
+    expect(errorTextOf(result)).toContain("bogus");
+  });
+
+  it("data 為空陣列時回傳 isError", () => {
+    expect(buildRadarChartResult({ ...validRadarInput, data: [] }).isError).toBe(true);
+  });
+
+  // 上限與既有圖表一致，LLM 對限制才有一致認知。
+  it("data 超過 100 筆時回傳驗證錯誤", () => {
+    const data = Array.from({ length: 101 }, (_, i) => ({ aspect: `面向${i}`, 北店: i }));
+    const result = buildRadarChartResult({ ...validRadarInput, data, series: [{ key: "北店" }] });
+
+    expect(result.isError).toBe(true);
+    expect(errorTextOf(result)).toContain("data");
+  });
+
+  it("series 超過 6 組時回傳驗證錯誤", () => {
+    const series = Array.from({ length: 7 }, (_, i) => ({ key: `s${i}` }));
+    const result = buildRadarChartResult({ ...validRadarInput, series });
+
+    expect(result.isError).toBe(true);
+    expect(errorTextOf(result)).toContain("series");
+  });
+
+  it("series 為空陣列時回傳驗證錯誤", () => {
+    expect(buildRadarChartResult({ ...validRadarInput, series: [] }).isError).toBe(true);
+  });
+
+  it("series[].color 非 hex 格式時回傳驗證錯誤", () => {
+    const result = buildRadarChartResult({
+      ...validRadarInput,
+      series: [{ key: "北店", color: "red" }],
+    });
+
+    expect(result.isError).toBe(true);
+    expect(errorTextOf(result)).toContain("color");
   });
 });

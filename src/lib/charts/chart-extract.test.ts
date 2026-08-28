@@ -153,3 +153,19 @@ describe("createChartExtractor", () => {
     expect(extract({ type: "stream_event", event: { type: "content_block_delta" } })).toEqual([]);
   });
 });
+
+// 圖表定義的擷取以 schema 驗證為輔；新增的 union 分支須確實被那份 schema 認得。
+describe("createChartExtractor 雷達圖", () => {
+  it("取出 radar tool 回傳的圖表定義", () => {
+    const extract = createChartExtractor();
+    const radar = {
+      type: "radar" as const,
+      data: [{ aspect: "服務", 北店: 80 }],
+      angleKey: "aspect",
+      series: [{ key: "北店" }],
+    };
+
+    extract(toolUse("t-1", "mcp__charts__radar_chart"));
+    expect(extract(toolResult("t-1", JSON.stringify(radar)))).toEqual([radar]);
+  });
+});

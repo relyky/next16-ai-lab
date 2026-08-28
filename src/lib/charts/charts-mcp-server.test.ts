@@ -8,6 +8,7 @@ import {
   createChartsMcpServer,
   lineChartTool,
   pieChartTool,
+  radarChartTool,
 } from "./charts-mcp-server";
 
 const validArgs = {
@@ -66,8 +67,14 @@ describe("charts MCP server", () => {
     expect(chartTool.description).toBeTruthy();
   });
 
-  it("四個 tool 全數註冊到 server", () => {
-    expect(chartTools).toEqual([lineChartTool, barChartTool, areaChartTool, pieChartTool]);
+  it("五個 tool 全數註冊到 server", () => {
+    expect(chartTools).toEqual([
+      lineChartTool,
+      barChartTool,
+      areaChartTool,
+      pieChartTool,
+      radarChartTool,
+    ]);
   });
 
   it("註冊 pie 的 tool 並附上描述", () => {
@@ -80,6 +87,39 @@ describe("charts MCP server", () => {
   it.each(CHART_TOOLS)("%s tool 的描述說明以數列顏色配色", (_type, _name, chartTool) => {
     expect(chartTool.description).toContain("series[].color");
     expect(chartTool.description).toContain("預設配色");
+  });
+
+  it("註冊 radar 的 tool 並附上描述", () => {
+    expect(radarChartTool.name).toBe("radar_chart");
+    expect(radarChartTool.description).toBeTruthy();
+  });
+
+  // 雷達圖與笛卡兒圖同樣是「每組數列一色」，配色說明的落點也相同。
+  it("radar tool 的描述說明以數列顏色配色與適用情境", () => {
+    expect(radarChartTool.description).toContain("series[].color");
+    expect(radarChartTool.description).toContain("預設配色");
+    expect(radarChartTool.description).toContain("angleKey");
+    // 適用情境：多維度指標的整體輪廓比較。
+    expect(radarChartTool.description).toContain("輪廓");
+  });
+
+  it("呼叫 radar_chart tool 回傳 type 為 radar 的圖表定義 JSON", async () => {
+    const radarArgs = {
+      title: "分店評比",
+      data: [
+        { aspect: "服務", 北店: 80 },
+        { aspect: "價格", 北店: 60 },
+      ],
+      angleKey: "aspect",
+      series: [{ key: "北店" }],
+    };
+    const result = await radarChartTool.handler(
+      radarArgs as Parameters<typeof radarChartTool.handler>[0],
+      {}
+    );
+
+    expect(result.isError).toBeFalsy();
+    expect(JSON.parse(textOf(result))).toEqual({ type: "radar", ...radarArgs });
   });
 
   it("pie tool 的描述說明以 colorKey 配色", () => {

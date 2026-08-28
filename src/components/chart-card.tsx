@@ -20,6 +20,11 @@ import {
   LineChart,
   Pie,
   PieChart,
+  PolarAngleAxis,
+  PolarGrid,
+  PolarRadiusAxis,
+  Radar,
+  RadarChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -36,6 +41,7 @@ import type {
   CartesianChartType,
   ChartDefinition,
   PieChartDefinition,
+  RadarChartDefinition,
 } from "@/lib/charts/chart-tool";
 
 /**
@@ -280,6 +286,48 @@ function PieChartView({ chart }: { chart: PieChartDefinition }) {
   );
 }
 
+/**
+ * 雷達圖（極座標上的類別軸 × 多數列）：各數列畫成一塊可疊放的多邊形區域。
+ *
+ * 不進笛卡兒圖的類型對照表——容器與軸線元件完全不同，表上的「預設是否堆疊」
+ * 「數列 props」對它都不成立。
+ *
+ * 半徑軸顯示但不標刻度數字：雷達圖的讀法是形狀輪廓比較而非讀絕對值，
+ * 數字疊在網格上可讀性差；實際數值仍可由 tooltip 取得。這與餅圖「過小的扇形
+ * 不標，值仍可由 tooltip 讀到」是同一個取捨立場。
+ *
+ * 填色不透明度沿用區域圖：多組數列疊放時各層相鄰，過低會讓區塊偏灰、層次不易分辨。
+ */
+function RadarChartView({ chart }: { chart: RadarChartDefinition }) {
+  const { data, angleKey, series } = chart;
+  const palette = useChartPalette();
+
+  return (
+    <RadarChart data={data}>
+      <PolarGrid />
+      <PolarAngleAxis dataKey={angleKey} />
+      <PolarRadiusAxis tick={false} axisLine={false} />
+      <Tooltip />
+      {/* 只有一組數列時圖例是冗贅資訊，標題已說明畫的是什麼。 */}
+      {series.length > 1 ? <Legend /> : null}
+      {series.map((s) => {
+        const color = seriesColorAt(s, palette);
+        return (
+          <Radar
+            key={s.key}
+            dataKey={s.key}
+            name={s.label ?? s.key}
+            stroke={color}
+            fill={color}
+            fillOpacity={0.6}
+            isAnimationActive={false}
+          />
+        );
+      })}
+    </RadarChart>
+  );
+}
+
 /** 依 `type` 分派到各圖表子元件；此處同時完成 union 的型別收窄。 */
 function ChartBody({ chart }: { chart: ChartDefinition }) {
   switch (chart.type) {
@@ -289,6 +337,8 @@ function ChartBody({ chart }: { chart: ChartDefinition }) {
       return <CartesianChartView chart={chart} />;
     case "pie":
       return <PieChartView chart={chart} />;
+    case "radar":
+      return <RadarChartView chart={chart} />;
   }
 }
 

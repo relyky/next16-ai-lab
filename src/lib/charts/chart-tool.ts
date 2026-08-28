@@ -124,6 +124,31 @@ export const pieChartInputSchema = z.strictObject(pieChartInputShape);
 export type PieChartInput = z.infer<typeof pieChartInputSchema>;
 
 /**
+ * 雷達圖的輸入欄位：類別軸 × 多數列，與笛卡兒圖同構，只是軸換成極座標。
+ *
+ * 共用「數列」與「資料」兩個常數，但**不**沿用 `cartesianCommonShape`——
+ * 後者的 `xKey` 語意是「字串類別軸」，雷達圖沒有 X 軸，借用只會讓名稱說謊。
+ * 角度軸欄位命名為 `angleKey`，貼齊 recharts 的 `PolarAngleAxis`，
+ * 沿用餅圖 `nameKey` / `valueKey` 立下的「貼齊 recharts prop 命名」慣例。
+ */
+export const radarChartInputShape = {
+  title: z.string().min(1).optional().describe("圖表標題"),
+  data: dataSchema,
+  angleKey: z
+    .string()
+    .min(1)
+    .describe("作為角度軸（各評比面向）的欄位名稱，須存在於 data 中"),
+  series: z
+    .array(seriesSchema)
+    .min(1)
+    .max(MAX_SERIES)
+    .describe(`要繪製的數列，1~${MAX_SERIES} 組`),
+};
+
+/** strict：誤把笛卡兒圖的 xKey 或餅圖的 nameKey 傳進來時直接被驗證擋下。 */
+export const radarChartInputSchema = z.strictObject(radarChartInputShape);
+
+/**
  * 各笛卡兒圖的定義：類別軸 × 多數列，以 `type` 區分。
  *
  * 同輸入端採 strict：tool 產出與前端解析走同一份定義，
@@ -164,6 +189,19 @@ export const pieChartDefinitionSchema = z.strictObject({
 export type PieChartDefinition = z.infer<typeof pieChartDefinitionSchema>;
 
 /**
+ * 雷達圖定義：極座標上的類別軸 × 多數列。
+ *
+ * 不併入笛卡兒圖的類型對照表——容器與軸線元件完全不同，塞進去只會讓表上的
+ * 「預設是否堆疊」「數列 props」對它說謊。依 ADR 0001：一個 union 分支 + 一個渲染子元件。
+ */
+export const radarChartDefinitionSchema = z.strictObject({
+  ...radarChartInputShape,
+  type: z.literal("radar"),
+});
+
+export type RadarChartDefinition = z.infer<typeof radarChartDefinitionSchema>;
+
+/**
  * 圖表定義 JSON：tool 的輸出，由前端 ChartCard 依 type 渲染。
  *
  * 以 `type` 為判別子的 discriminated union：各種圖表的資料形狀本質不同，
@@ -178,6 +216,7 @@ export const chartDefinitionSchema = z.discriminatedUnion("type", [
   barChartDefinitionSchema,
   areaChartDefinitionSchema,
   pieChartDefinitionSchema,
+  radarChartDefinitionSchema,
 ]);
 
 export type ChartDefinition = z.infer<typeof chartDefinitionSchema>;
@@ -226,22 +265,29 @@ function toolSuccess(definition: ChartDefinition): ChartToolResult {
 }
 
 /**
- * 笛卡兒圖共通的欄位存在性比對：xKey 與 series[].key 都必須對得上 data 的欄位。
+ * 「類別軸欄位 + series[].key」共通的欄位存在性比對：兩者都必須對得上 data 的欄位。
  *
- * 這條規則不隨圖表類型而異，故三個具名轉換函式共用同一份實作。
- * 直接收下驗證後的輸入物件——三個欄位本來就同進同出，拆成三個參數
+ * 這條規則不隨圖表類型而異，故各具名轉換函式共用同一份實作。
+ * 直接收下驗證後的輸入物件——這些欄位本來就同進同出，拆成多個參數
  * 只是讓每個呼叫端多寫一次一模一樣的解構。對得上時回傳 null。
+ *
+ * 類別軸的欄位值由呼叫端傳入，錯誤訊息中的標籤也可指定：笛卡兒圖是 `xKey`（預設），
+ * 雷達圖的角度軸是 `angleKey`。兩者的檢查邏輯與錯誤訊息形狀完全相同，差別只在標籤文字。
+ * 標籤預設為 `"xKey"`，既有呼叫端的訊息文字因此一字不變。
  */
-function findMissingCartesianKeys(input: {
-  data: Record<string, string | number>[];
-  xKey: string;
-  series: { key: string }[];
-}): ChartToolResult | null {
-  const { data, xKey, series } = input;
+function findMissingCategoryAndSeriesKeys(
+  input: {
+    data: Record<string, string | number>[];
+    series: { key: string }[];
+  },
+  categoryKey: string,
+  categoryLabel: string = "xKey"
+): ChartToolResult | null {
+  const { data, series } = input;
   const availableKeys = Object.keys(data[0]);
 
-  const missingXKey = assertKeyExists("xKey", xKey, availableKeys);
-  if (missingXKey) return missingXKey;
+  const missingCategoryKey = assertKeyExists(categoryLabel, categoryKey, availableKeys);
+  if (missingCategoryKey) return missingCategoryKey;
 
   const missingSeries = series
     .map((s) => s.key)
@@ -266,7 +312,7 @@ export function buildLineChartResult(input: unknown): ChartToolResult {
   const parsed = parseOrError(lineChartInputSchema, input);
   if (!parsed.ok) return parsed.error;
 
-  const missingKeys = findMissingCartesianKeys(parsed.value);
+  const missingKeys = findMissingCategoryAndSeriesKeys(parsed.value, parsed.value.xKey);
   if (missingKeys) return missingKeys;
 
   return toolSuccess({ type: "line", ...parsed.value });
@@ -277,7 +323,7 @@ export function buildBarChartResult(input: unknown): ChartToolResult {
   const parsed = parseOrError(barChartInputSchema, input);
   if (!parsed.ok) return parsed.error;
 
-  const missingKeys = findMissingCartesianKeys(parsed.value);
+  const missingKeys = findMissingCategoryAndSeriesKeys(parsed.value, parsed.value.xKey);
   if (missingKeys) return missingKeys;
 
   return toolSuccess({ type: "bar", ...parsed.value });
@@ -288,7 +334,7 @@ export function buildAreaChartResult(input: unknown): ChartToolResult {
   const parsed = parseOrError(areaChartInputSchema, input);
   if (!parsed.ok) return parsed.error;
 
-  const missingKeys = findMissingCartesianKeys(parsed.value);
+  const missingKeys = findMissingCategoryAndSeriesKeys(parsed.value, parsed.value.xKey);
   if (missingKeys) return missingKeys;
 
   return toolSuccess({ type: "area", ...parsed.value });
@@ -355,4 +401,24 @@ export function buildPieChartResult(input: unknown): ChartToolResult {
   }
 
   return toolSuccess({ type: "pie", ...parsed.value });
+}
+
+/**
+ * 驗證雷達圖輸入並轉成圖表定義 JSON。
+ *
+ * 欄位存在性沿用與笛卡兒圖同一份檢查，只把標籤換成 `angleKey`——
+ * 兩者的規則本來就是同一條，複製一份只會多一處會漂移的訊息文字。
+ */
+export function buildRadarChartResult(input: unknown): ChartToolResult {
+  const parsed = parseOrError(radarChartInputSchema, input);
+  if (!parsed.ok) return parsed.error;
+
+  const missingKeys = findMissingCategoryAndSeriesKeys(
+    parsed.value,
+    parsed.value.angleKey,
+    "angleKey"
+  );
+  if (missingKeys) return missingKeys;
+
+  return toolSuccess({ type: "radar", ...parsed.value });
 }
