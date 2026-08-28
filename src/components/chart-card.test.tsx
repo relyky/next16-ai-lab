@@ -5,6 +5,7 @@ import {
   ChartCard,
   ChartPaletteProvider,
   formatAxisTick,
+  renderSectorLabel,
   seriesColorAt,
 } from "./chart-card";
 import type { ChartDefinition } from "@/lib/charts/chart-tool";
@@ -404,5 +405,31 @@ describe("ChartCard 餅圖", () => {
   it("顯示圖表標題", () => {
     render(<ChartCard chart={pieChart} />);
     expect(screen.getByText("成本結構")).toBeInTheDocument();
+  });
+});
+
+// 標籤文字的 SVG 節點在 jsdom 下不生成，故直接驗產生文字的純函式。
+describe("renderSectorLabel", () => {
+  it("標出類別名稱與佔比百分比", () => {
+    expect(renderSectorLabel({ name: "原料", percent: 0.5 })).toBe("原料 50.0%");
+  });
+
+  // 整數會讓 33.3% 與 33.4% 併成同一個數字，看起來像資料有誤。
+  it("百分比取一位小數", () => {
+    expect(renderSectorLabel({ name: "人力", percent: 1 / 3 })).toBe("人力 33.3%");
+  });
+
+  // 標籤字寬固定，過窄的扇形標上去只會互相疊住。
+  it("佔比過小的扇形不標", () => {
+    expect(renderSectorLabel({ name: "雜項", percent: 0.02 })).toBeNull();
+  });
+
+  it("佔比達門檻的扇形照標", () => {
+    expect(renderSectorLabel({ name: "雜項", percent: 0.03 })).toBe("雜項 3.0%");
+  });
+
+  // recharts 未帶 percent 時不該畫出 "undefined%"。
+  it("沒有 percent 時不標", () => {
+    expect(renderSectorLabel({ name: "原料" })).toBeNull();
   });
 });

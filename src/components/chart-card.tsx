@@ -218,10 +218,39 @@ export function sectorColorAt(
 }
 
 /**
+ * 扇形標籤：類別名稱 + 佔比百分比。
+ *
+ * 扇形角度雖然就是佔比，但「這塊看起來比那塊大一點」不等於讀得出數字——
+ * 餅圖的用途正是讀比例，故把百分比直接畫在圖上，而不是只藏在 hover 的
+ * tooltip 裡（截圖、列印、觸控裝置都沒有 hover）。
+ *
+ * 百分比由 recharts 提供的 `percent`（0~1）換算，取一位小數：整數會讓
+ * 33.3% 與 33.4% 併成同一個數字，看起來像資料有誤。
+ *
+ * 過小的扇形不標：標籤字寬固定，扇形太窄時文字會互相疊在一起，
+ * 反而比不標更難讀。被略過的值仍可由 tooltip 讀到。
+ */
+const MIN_LABELED_PERCENT = 0.03;
+
+export function renderSectorLabel({
+  name,
+  percent,
+}: {
+  name?: string | number;
+  percent?: number;
+}) {
+  if (typeof percent !== "number" || percent < MIN_LABELED_PERCENT) return null;
+  return `${name} ${(percent * 100).toFixed(1)}%`;
+}
+
+/**
  * 餅圖（單一數列 × 多類別）：無軸線與格線，扇形角度即為佔比。
  *
  * 顏色的層級是「每個扇形一色」，裝不進笛卡兒圖的數列結構，
  * 故由 `colorKey` 指向 data 內的色碼欄位；未指定時回退預設配色。
+ *
+ * 半徑較容器可容納的上限保守：外置標籤與其引線需要橫向空間，
+ * 半徑吃滿寬度會讓標籤被 SVG 邊界裁掉。
  */
 function PieChartView({ chart }: { chart: PieChartDefinition }) {
   const { data, nameKey, valueKey, colorKey } = chart;
@@ -235,8 +264,10 @@ function PieChartView({ chart }: { chart: PieChartDefinition }) {
         data={data}
         nameKey={nameKey}
         dataKey={valueKey}
-        outerRadius={80}
+        outerRadius={70}
         isAnimationActive={false}
+        label={renderSectorLabel}
+        labelLine
       >
         {data.map((row, index) => (
           <Cell
