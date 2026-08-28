@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ChatStreamEvent } from "@/lib/chat-stream";
 
@@ -99,6 +99,23 @@ function modelUsage(partial: {
 
 /** 事件流斷言用：以 modelUsage({}) 收尾的輪次會送出這個全零的 usage 事件。 */
 const zeroUsageEvent = { type: "usage", in: 0, cache_c: 0, cache_r: 0, out: 0 };
+
+/**
+ * session 事件會回報實際採用的模型，斷言需與之相符。
+ * 固定 MODEL 而不沿用開發者的 .env.local，斷言才不會受本機環境影響。
+ */
+const TEST_MODEL = "haiku";
+
+/** 串流開頭固定送出的 session 事件。 */
+const sessionEvent = {
+  type: "session",
+  sessionId: "s-1",
+  model: TEST_MODEL,
+};
+
+beforeEach(() => {
+  vi.stubEnv("MODEL", TEST_MODEL);
+});
 
 afterEach(() => {
   queryMock.mockReset();
@@ -297,7 +314,7 @@ describe("POST /api/chat", () => {
       const events = await drain(res.body!);
 
       expect(events).toEqual([
-        { type: "session", sessionId: "s-1" },
+        sessionEvent,
         { type: "delta", text: "我查一下。" },
         {
           type: "tool_use",
@@ -366,7 +383,7 @@ describe("POST /api/chat", () => {
       const events = await drain(res.body!);
 
       expect(events).toEqual([
-        { type: "session", sessionId: "s-1" },
+        sessionEvent,
         { type: "delta", text: "我畫給你看。" },
         { type: "tool_use", id: "t-1", name: "mcp__charts__line_chart" },
         { type: "tool_done", id: "t-1", ok: true },
@@ -483,7 +500,7 @@ describe("POST /api/chat", () => {
       ]);
 
       expect(events).toEqual([
-        { type: "session", sessionId: "s-1" },
+        sessionEvent,
         { type: "tool_use", id: "t-1", name: "mcp__qadb__search_asvt_project_basic" },
         { type: "tool_done", id: "t-1", ok: true },
         zeroUsageEvent,
@@ -662,7 +679,7 @@ describe("POST /api/chat", () => {
     const events = await drain(res.body!);
 
     expect(events).toEqual([
-      { type: "session", sessionId: "s-1" },
+      sessionEvent,
       { type: "delta", text: "本季營收" },
       { type: "usage", in: 3, cache_c: 11604, cache_r: 0, out: 442 },
       { type: "done", result: "本季營收成長 12%。", sessionId: "s-1" },
@@ -858,7 +875,7 @@ describe("POST /api/chat", () => {
     const { events, reader } = await readUntil(res.body!, "delta");
     await reader.cancel();
 
-    expect(events[0]).toEqual({ type: "session", sessionId: "s-1" });
+    expect(events[0]).toEqual(sessionEvent);
   });
 
   it("用戶端中斷連線時，一併中止 LLM 呼叫", async () => {
