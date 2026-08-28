@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { QuarterlyRevenueBars } from "@/components/quarterly-revenue-bars";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,8 +22,15 @@ export default function Home() {
           財務摘要，一次講清楚。
         </p>
         <div className="flex items-center gap-3">
-          <Button size="lg">開始對話</Button>
-          <Button size="lg" variant="outline">
+          <Button size="lg" nativeButton={false} render={<Link href="/chat" />}>
+            開始對話
+          </Button>
+          <Button
+            size="lg"
+            variant="outline"
+            nativeButton={false}
+            render={<Link href="/about" />}
+          >
             了解更多
           </Button>
         </div>
