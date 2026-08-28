@@ -47,10 +47,10 @@
 
 <h1>Chat Page Wireframe</h1>
 <p class="lede">「對話」頁（<code>/chat</code>）線框圖設計文件 — 我的財務助手</p>
-<p class="meta">來源：<code>src/app/chat/page.tsx</code>　·　設計寬度 1440px　·　內容欄 <code>max-w-3xl</code> = 768px</p>
+<p class="meta">來源：<code>src/app/chat/page.tsx</code></p>
 
 <h2>1. 版面骨架</h2>
-<p>整頁由 <code>src/app/layout.tsx</code> 提供外框：<code>body</code> 為 <code>min-h-full flex flex-col</code>，內含固定高度的 <code>NavBar</code> 與 <code>flex-1</code> 的 <code>main</code>。Chat 頁自身是一個置中的單欄，欄內由上到下分三段，中段吸收剩餘高度、把輸入列推到視窗底部。</p>
+<p>整頁由 layout 提供外框：固定高度的導覽列，加上吸收剩餘高度的內容區。Chat 頁自身是一個置中的單欄，欄內由上到下分三段。三段之中只有<strong>訊息列表會長高</strong>，它把底部區塊推到視窗底；訊息不足一頁時底部區塊仍貼齊視窗底部，不會浮在半空。</p>
 
 <figure>
 <svg viewBox="0 0 1120 600" role="img" aria-label="Chat 頁版面骨架示意圖">
@@ -58,43 +58,38 @@
 
   <!-- viewport -->
   <rect x="60" y="20" width="1000" height="560" fill="none" stroke="#1a1a1a" stroke-width="2"/>
-  <text x="60" y="14" font-size="12" fill="#6b6b6b">viewport 1440 × 900（示意縮放）</text>
 
   <!-- navbar -->
   <rect x="60" y="20" width="1000" height="52" fill="#eeeeee" stroke="#c8c8c8"/>
   <text x="80" y="51" font-size="14" font-weight="600">我的財務助手</text>
-  <rect x="700" y="34" width="52" height="26" fill="none" stroke="#c8c8c8"/><text x="712" y="51" font-size="12">首頁</text>
-  <rect x="756" y="34" width="52" height="26" fill="#5B1220"/><text x="768" y="51" font-size="12" fill="#ffffff">對話</text>
-  <rect x="812" y="34" width="76" height="26" fill="none" stroke="#c8c8c8"/><text x="822" y="51" font-size="12">對話範本</text>
-  <rect x="892" y="34" width="80" height="26" fill="none" stroke="#c8c8c8"/><text x="900" y="51" font-size="12">Agent Lab</text>
+  <rect x="784" y="34" width="52" height="26" fill="none" stroke="#c8c8c8"/><text x="796" y="51" font-size="12">首頁</text>
+  <rect x="840" y="34" width="52" height="26" fill="#5B1220"/><text x="852" y="51" font-size="12" fill="#ffffff">對話</text>
+  <rect x="896" y="34" width="76" height="26" fill="none" stroke="#c8c8c8"/><text x="906" y="51" font-size="12">對話範本</text>
   <rect x="976" y="34" width="52" height="26" fill="none" stroke="#c8c8c8"/><text x="988" y="51" font-size="12">關於</text>
-  <text x="1064" y="50" font-size="11" fill="#0f5c8c">h-14</text>
 
   <!-- gutters -->
   <rect x="60" y="72" width="230" height="508" fill="#fafafa"/>
   <rect x="830" y="72" width="230" height="508" fill="#fafafa"/>
-  <text x="120" y="330" font-size="12" fill="#9a9a9a">gutter（mx-auto）</text>
-  <text x="890" y="330" font-size="12" fill="#9a9a9a">gutter（mx-auto）</text>
 
   <!-- content column -->
   <rect x="290" y="72" width="540" height="508" fill="none" stroke="#5B1220" stroke-width="2" stroke-dasharray="6 4"/>
-  <text x="292" y="88" font-size="11" fill="#5B1220">內容欄 max-w-3xl (768px) · px-4 · flex-col flex-1</text>
+  <text x="292" y="88" font-size="11" fill="#5B1220">內容欄（置中，有最大寬度）</text>
 
   <!-- toolbar row -->
   <rect x="300" y="96" width="520" height="34" fill="#ffffff" stroke="#c8c8c8" stroke-dasharray="3 3"/>
-  <rect x="700" y="105" width="30" height="16" rx="8" fill="#5B1220"/>
-  <circle cx="722" cy="113" r="6" fill="#ffffff"/>
+  <rect x="700" y="105" width="30" height="16" rx="8" fill="#eeeeee" stroke="#c8c8c8"/>
+  <circle cx="708" cy="113" r="6" fill="#ffffff" stroke="#c8c8c8"/>
   <text x="738" y="118" font-size="12" fill="#6b6b6b">顯示處理過程</text>
-  <text x="308" y="118" font-size="11" fill="#0f5c8c">① Toolbar — self-end · pt-4</text>
+  <text x="308" y="118" font-size="11" fill="#0f5c8c">① 工具列（預設關閉）</text>
 
   <!-- message list -->
   <rect x="300" y="140" width="520" height="360" fill="#ffffff" stroke="#c8c8c8"/>
-  <text x="308" y="160" font-size="11" fill="#0f5c8c">② Message list — flex-1 · flex-col · gap-4 · py-8（唯一會長高的區段）</text>
+  <text x="308" y="160" font-size="11" fill="#0f5c8c">② 訊息列表（唯一會長高的區段）</text>
   <rect x="600" y="176" width="212" height="30" rx="12" fill="#5B1220"/>
   <text x="614" y="196" font-size="11.5" fill="#ffffff">這季的營收趨勢如何？</text>
   <rect x="308" y="218" width="468" height="150" rx="12" fill="#ffffff" stroke="#1a1a1a"/>
   <rect x="308" y="218" width="468" height="30" fill="#f6f6f6"/>
-  <text x="320" y="237" font-size="10.5" fill="#6b6b6b">✓ mcp__charts__bar_chart　⟳ mcp__charts__line_chart</text>
+  <text x="320" y="237" font-size="10.5" fill="#6b6b6b">✓ mcp__charts__bar_chart　⟳ mcp__charts__line_chart（開關開啟時才有此列）</text>
   <line x1="308" y1="248" x2="776" y2="248" stroke="#c8c8c8"/>
   <text x="320" y="268" font-size="11.5">近四個季度營收持續成長，Q4 較 Q1 增加約 44%。</text>
   <rect x="320" y="280" width="444" height="76" rx="6" fill="#fbfbfb" stroke="#c8c8c8"/>
@@ -114,26 +109,26 @@
   <text x="322" y="546" font-size="11.5" fill="#9a9a9a">輸入你的財務問題……（Shift+Enter 換行）</text>
   <rect x="762" y="530" width="48" height="24" rx="6" fill="#5B1220"/>
   <text x="772" y="546" font-size="11" fill="#ffffff">送出</text>
-  <text x="308" y="494" font-size="11" fill="#0f5c8c">③ sticky bottom-0 · border-t — ③a UsageLine ＋ ③b ChatInput</text>
+  <text x="308" y="494" font-size="11" fill="#0f5c8c">③ 釘底區塊（sticky）— ③a 用量列 ＋ ③b 輸入列</text>
 </svg>
 <figcaption>版面骨架：導覽列固定、內容欄置中，訊息列表為唯一彈性段落。</figcaption>
 </figure>
 
-<h3>區段對照</h3>
+<h3>各區塊的責任</h3>
 <table>
-  <tr><th>區段</th><th>元件 / 檔案</th><th>關鍵樣式</th></tr>
-  <tr><td>導覽列</td><td><code>NavBar</code>（layout 提供）</td><td><code>h-14 border-b</code>、內欄 <code>max-w-5xl</code>、當前頁為 primary 底色</td></tr>
-  <tr><td>內容欄</td><td><code>ChatPage</code> 根節點</td><td><code>mx-auto w-full max-w-3xl flex-1 flex-col px-4</code></td></tr>
-  <tr><td>① Toolbar</td><td><code>Switch</code> + label</td><td><code>self-end pt-4 text-sm text-muted-foreground</code></td></tr>
-  <tr><td>② 訊息列表</td><td><code>UserMessage</code> / <code>AssistantMessage</code></td><td><code>flex-1 flex-col gap-4 py-8</code></td></tr>
-  <tr><td>③ 底部區塊</td><td><code>ChatPage</code> 內的 wrapper</td><td><code>sticky bottom-0 border-t bg-background</code> — 釘底樣式由 <code>ChatInput</code> 上移至此，用量列才能與輸入列一起釘住</td></tr>
-  <tr><td>③a 用量列</td><td><code>UsageLine</code></td><td><code>pt-2 text-xs text-muted-foreground</code>；<code>usage</code> 為 <code>null</code>（尚無任何用量）時不渲染</td></tr>
-  <tr><td>③b 輸入列</td><td><code>ChatInput</code></td><td><code>flex items-end gap-2 py-4</code></td></tr>
+  <tr><th>區塊</th><th>元件</th><th>負責什麼</th></tr>
+  <tr><td>導覽列</td><td><code>NavBar</code>（layout 提供）</td><td>站台層級的頁面切換，標示當前頁。Chat 頁不介入</td></tr>
+  <tr><td>內容欄</td><td><code>ChatPage</code></td><td>限制閱讀寬度並置中，持有本頁全部狀態（訊息、session、用量、載入中）</td></tr>
+  <tr><td>① 工具列</td><td><code>Switch</code></td><td>切換工具歷程的顯示與否。純顯示濾鏡，不影響資料收集</td></tr>
+  <tr><td>② 訊息列表</td><td><code>UserMessage</code>／<code>AssistantMessage</code></td><td>依序渲染對話。<strong>唯一會長高的區段</strong>——它吸收剩餘高度，才能把底部區塊壓在視窗底</td></tr>
+  <tr><td>③ 底部區塊</td><td><code>ChatPage</code> 內的 wrapper</td><td>以 <strong><code>sticky</code></strong> 把 ③a 與 ③b <strong>一起</strong>釘在視窗底並遮擋捲動內容。釘底責任刻意放在這一層而非輸入列——否則用量列會被留在上面隨內容捲走</td></tr>
+  <tr><td>③a 用量列</td><td><code>UsageLine</code></td><td>顯示本輪 session 的累計用量。尚無用量時整行不存在（見 §5）</td></tr>
+  <tr><td>③b 輸入列</td><td><code>ChatInput</code></td><td>接收輸入、送出與中斷。自身不管釘底</td></tr>
 </table>
 
 <h2>2. 訊息泡泡結構</h2>
-<p>兩種角色採不同的視覺語言：使用者為右側實心色塊，助手為左側白底卡片。助手的一則回應會長出三種產物——泡泡、圖表、提示——依串流事件動態出現，彼此<strong>並列為兄弟</strong>而非巢狀：圖表若放進泡泡內，會變成 <code>bg-card</code> 疊 <code>bg-card</code> 的雙層外框，內框沒有對比、只剩雜訊。三者再以一層淡底色（<code>assistant-turn</code>）收成一群，補回並列後失去的歸屬感。</p>
-<p><strong>深色模式的底色不能沿用 <code>muted</code>。</strong> 本專案的 <code>--card</code>（0.205）比 <code>--background</code>（0.145）<em>更亮</em>——卡片是浮起的；若群組底色用 <code>muted</code>（0.269）會比卡片還亮，卡片反而凹陷，深度線索與淺色模式相反（實測圖表卡對比僅 1.01，幾乎沒入背景）。故深色改用比 <code>card</code> 更暗的黑色薄層 <code>dark:bg-black/25</code>，兩種模式下卡片都比群組底色亮。</p>
+<p>兩種角色採不同的視覺語言：使用者為右側實心色塊，助手為左側白底卡片。助手的一則回應會長出三種產物——泡泡、圖表、提示——依串流事件動態出現，彼此<strong>並列為兄弟</strong>而非巢狀：圖表若放進泡泡內，卡片底色會疊在同樣的卡片底色上，內框沒有對比、只剩雜訊。三者再以一層淡底色的群組（<code>assistant-turn</code>）收成一則，補回並列後失去的歸屬感。</p>
+<p><strong>群組底色在深色模式必須另外指定。</strong>本專案的卡片底色比頁面底色<em>更亮</em>——卡片是浮起的。若深色模式沿用與淺色相同的次要底色，群組會比卡片還亮，卡片反而凹陷，深度線索與淺色模式相反（實測圖表卡對比僅 1.01，幾乎沒入背景）。故深色模式改用比卡片更暗的薄層，兩種模式下卡片都比群組底色亮。</p>
 
 <figure>
 <svg viewBox="0 0 1120 470" role="img" aria-label="使用者與助手訊息泡泡結構">
@@ -141,7 +136,7 @@
 
   <!-- user -->
   <text x="20" y="24" font-size="14" font-weight="600">UserMessage</text>
-  <text x="20" y="44" font-size="12" fill="#6b6b6b">flex justify-end · max-w-[80%] · rounded-xl · bg-primary · px-4 py-2 · whitespace-pre-wrap</text>
+  <text x="20" y="44" font-size="12" fill="#6b6b6b">靠右實心色塊；不走 markdown，維持字面換行</text>
   <rect x="20" y="56" width="1080" height="56" fill="none" stroke="#c8c8c8" stroke-dasharray="4 4"/>
   <rect x="826" y="66" width="264" height="36" rx="12" fill="#5B1220"/>
   <text x="842" y="89" font-size="13" fill="#ffffff">這季的營收趨勢如何？</text>
@@ -149,7 +144,7 @@
 
   <!-- assistant -->
   <text x="20" y="152" font-size="14" font-weight="600">AssistantMessage</text>
-  <text x="20" y="172" font-size="12" fill="#6b6b6b">assistant-turn：flex flex-col items-start gap-2 rounded-xl bg-muted/60 p-3 dark:bg-black/25 · 泡泡 Card p-0 max-w-[90%] · 圖表欄 w-full</text>
+  <text x="20" y="172" font-size="12" fill="#6b6b6b">assistant-turn：淡底色群組，靠左；泡泡不撐滿，圖表欄撐滿</text>
 
   <rect x="20" y="186" width="1080" height="264" rx="14" fill="#f7f7f7"/>
   <rect x="30" y="196" width="880" height="96" rx="14" fill="#ffffff" stroke="#1a1a1a"/>
@@ -163,12 +158,10 @@
   <circle cx="52" cy="236" r="6" fill="none" stroke="#6b6b6b" stroke-dasharray="6 3"/>
   <text x="66" y="240" font-size="11.5" font-family="ui-monospace, monospace" fill="#6b6b6b">mcp__charts__line_chart</text>
   <text x="930" y="216" font-size="11" fill="#0f5c8c">Ⓐ ToolUsageList</text>
-  <text x="930" y="232" font-size="10.5" fill="#6b6b6b">border-b · px-4 py-2</text>
 
   <!-- block B（泡泡內） -->
   <text x="46" y="278" font-size="13">近四個季度營收持續成長，Q4 較 Q1 增加約 44%。</text>
   <text x="930" y="274" font-size="11" fill="#0f5c8c">Ⓑ 文字</text>
-  <text x="930" y="290" font-size="10.5" fill="#6b6b6b">px-4 py-3 · text-sm</text>
 
   <!-- block C（泡泡外，與泡泡並列的兄弟；左緣對齊、寬度撐滿） -->
   <rect x="30" y="304" width="972" height="112" rx="10" fill="#fbfbfb" stroke="#c8c8c8"/>
@@ -188,28 +181,26 @@
   <text x="622" y="412" font-size="10" fill="#6b6b6b">Q3</text>
   <text x="842" y="412" font-size="10" fill="#6b6b6b">Q4</text>
   <text x="1012" y="330" font-size="11" fill="#0f5c8c">Ⓒ ChartCard[]</text>
-  <text x="1012" y="346" font-size="10.5" fill="#6b6b6b">w-full · gap-3</text>
-  <text x="1012" y="362" font-size="10.5" fill="#6b6b6b">高度固定 240px</text>
 
   <!-- block D（泡泡外，排在最後） -->
   <text x="30" y="436" font-size="11.5" fill="#6b6b6b">（已中斷）</text>
   <text x="1012" y="436" font-size="11" fill="#0f5c8c">Ⓓ 提示</text>
 </svg>
-<figcaption>一則助手回應由上而下：泡泡（Ⓐ 工具歷程 → Ⓑ 文字）→ Ⓒ 圖表 → Ⓓ 提示；每一塊皆可缺席。Ⓒ 與 Ⓓ 在泡泡<strong>之外</strong>，與泡泡同為 <code>assistant-turn</code> 的子項——各自只有一層外框。</figcaption>
+<figcaption>一則助手回應由上而下：泡泡（Ⓐ 工具歷程 → Ⓑ 文字）→ Ⓒ 圖表 → Ⓓ 提示；每一塊皆可缺席。Ⓒ 與 Ⓓ 在泡泡<strong>之外</strong>，與泡泡同為群組的子項——各自只有一層外框。</figcaption>
 </figure>
 
 <h3>區塊出現規則</h3>
 <table>
   <tr><th>區塊</th><th>出現條件</th><th>設計理由</th></tr>
-  <tr><td>泡泡本身</td><td><code>toolUsages?.length || text</code></td><td>圖表可能比文字先到，此時泡泡尚無任何內容——不留一個只有外框的空卡片</td></tr>
-  <tr><td>Ⓐ ToolUsageList</td><td><code>toolUsages?.length</code> 且開關為開</td><td>排在文字之前，反映「先呼叫工具、再依結果作答」的實際流程</td></tr>
-  <tr><td>Ⓑ 文字</td><td><code>text</code> 非空</td><td>文字尚無內容時不留空白區塊</td></tr>
-  <tr><td>Ⓒ ChartCard[]</td><td><code>charts?.length</code></td><td>依產生順序排列；已移出泡泡與其並列，各自保有單層外框。圖表欄取 <code>w-full</code>——<code>ResponsiveContainer</code> 量的是父層實際寬度，<code>items-start</code> 下若不撐滿就量不到寬度</td></tr>
-  <tr><td>Ⓓ 提示</td><td><code>notice</code> 非空</td><td>排在所有內容之後：使用者要讀完已浮現的內容才看到「已中斷」。不在泡泡內，故未閉合的程式碼圍欄不可能把它吞進程式碼區塊</td></tr>
+  <tr><td>泡泡本身</td><td>已有工具歷程或文字</td><td>圖表可能比文字先到，此時泡泡尚無任何內容——不留一個只有外框的空卡片</td></tr>
+  <tr><td>Ⓐ 工具歷程</td><td>已有工具呼叫，且開關為開</td><td>排在文字之前，反映「先呼叫工具、再依結果作答」的實際流程</td></tr>
+  <tr><td>Ⓑ 文字</td><td>已有文字</td><td>文字尚無內容時不留空白區塊。助手回覆以 markdown 渲染（支援中日韓排版、程式碼、數學式；不支援圖表語法——本頁圖表走 Ⓒ 的圖表卡）。<strong>只有正在串流的那一則</strong>帶逐字淡入，否則每問一個新問題整段歷史都會重播閃動。<strong>使用者訊息刻意不走 markdown</strong>——使用者打字通常不是 markdown，渲染會吃掉 <code>1. </code>／<code>- </code>／<code>#</code> 開頭的字面輸入</td></tr>
+  <tr><td>Ⓒ 圖表</td><td>本則有圖表</td><td>依產生順序排列；已移出泡泡與其並列，各自保有單層外框。與泡泡不同，圖表欄<strong>必須撐滿群組寬度</strong>——圖表是依父層實際寬度繪製的，父層若隨內容縮放就量不到寬度、圖畫不出來。餅圖的扇形直接標出<strong>類別名稱與佔比</strong>：扇形角度雖然就是佔比，但「看起來比較大」讀不出數字，而截圖、列印、觸控裝置都沒有 hover 可看提示框；過小的扇形不標，標籤會互相疊住反而更難讀</td></tr>
+  <tr><td>Ⓓ 提示</td><td>該輪被中斷或失敗</td><td>排在所有內容之後：使用者要讀完已浮現的內容才看到「已中斷」。刻意不併進回覆文字——回覆停在未閉合的程式碼區塊時，併進去的提示會被一起吞進程式碼框裡</td></tr>
 </table>
 
 <h2>3. 工具歷程列狀態</h2>
-<p><code>ToolUsageList</code> 只顯示工具全名與狀態，不含參數與回傳內容 — 目的是讓使用者理解處理過程，而非提供除錯 trace。名稱以原始全名呈現，不做前綴剝除。</p>
+<p>這一列的責任是讓使用者<strong>理解處理過程</strong>，而非提供除錯用的完整記錄：只顯示工具名稱與狀態，不含呼叫參數與回傳內容。名稱以原始全名呈現、不做前綴剝除或美化——使用者看到的與日誌裡的是同一個字串，回報問題時才對得起來。</p>
 
 <figure>
 <svg viewBox="0 0 1120 160" role="img" aria-label="工具歷程三種狀態">
@@ -219,23 +210,23 @@
 
   <circle cx="52" cy="50" r="7" fill="none" stroke="#6b6b6b" stroke-width="1.6" stroke-dasharray="9 5"/>
   <text x="70" y="55" font-size="12.5" font-family="ui-monospace, monospace" fill="#6b6b6b">mcp__charts__bar_chart</text>
-  <text x="360" y="55" font-size="12" fill="#0f5c8c">running　→　Loader2，animate-spin，text-muted-foreground</text>
+  <text x="360" y="55" font-size="12" fill="#0f5c8c">進行中　→　轉圈圖示，次要文字色</text>
 
   <circle cx="52" cy="82" r="7" fill="none" stroke="#6b6b6b" stroke-width="1.2"/>
   <path d="M48.5 82 l2.5 2.5 l5 -5.5" fill="none" stroke="#6b6b6b" stroke-width="1.8"/>
   <text x="70" y="87" font-size="12.5" font-family="ui-monospace, monospace" fill="#6b6b6b">mcp__charts__line_chart</text>
-  <text x="360" y="87" font-size="12" fill="#0f5c8c">success　→　Check，text-muted-foreground</text>
+  <text x="360" y="87" font-size="12" fill="#0f5c8c">成功　→　勾號，次要文字色</text>
 
   <path d="M47 109 l10 10 M57 109 l-10 10" stroke="#D13212" stroke-width="1.8"/>
   <text x="70" y="119" font-size="12.5" font-family="ui-monospace, monospace" fill="#6b6b6b">mcp__charts__pie_chart</text>
   <text x="248" y="119" font-size="12.5" fill="#D13212">未完成</text>
-  <text x="360" y="119" font-size="12" fill="#0f5c8c">error　→　X，text-destructive，右側附截斷後簡短原因</text>
+  <text x="360" y="119" font-size="12" fill="#0f5c8c">失敗　→　叉號，錯誤色，右側附簡短原因</text>
 </svg>
-<figcaption>圖示尺寸 <code>size-3.5</code>，列間距 <code>gap-1</code>，文字 <code>text-xs font-mono break-all</code>。</figcaption>
+<figcaption>串流結束時仍在「進行中」的工具會被收成終態（未完成／已中斷），畫面不留下永遠轉圈的指示器。</figcaption>
 </figure>
 
 <h2>4. 輸入列兩態</h2>
-<p><code>ChatInput</code> 以 <code>disabled</code>（＝回覆串流中）切換兩種樣態。Textarea 為自動長高，上限 <code>max-h-40</code>；<code>Enter</code> 送出、<code>Shift+Enter</code> 換行，輸入法組字中的 <code>Enter</code> 不觸發送出。</p>
+<p>輸入列只有兩種樣態，由「是否正在串流回覆」決定：串流中不能再送出，但必須能中斷，故送出鈕原地換成中斷鈕。輸入框隨內容長高，<strong>但有高度上限</strong>，超過改為框內捲動——輸入框無限長高會把訊息列表整個擠出畫面。</p>
 
 <figure>
 <svg viewBox="0 0 1120 230" role="img" aria-label="輸入列閒置態與串流態">
@@ -247,17 +238,17 @@
   <text x="34" y="74" font-size="12.5" fill="#9a9a9a">輸入你的財務問題……（Shift+Enter 換行）</text>
   <rect x="994" y="55" width="66" height="28" rx="7" fill="#5B1220" opacity="0.5"/>
   <text x="1010" y="74" font-size="12" fill="#ffffff">送出</text>
-  <text x="20" y="106" font-size="11.5" fill="#6b6b6b">文字為空時送出鈕 disabled（opacity-50）；有內容時為 primary 實心。</text>
+  <text x="20" y="106" font-size="11.5" fill="#6b6b6b">文字為空時送出鈕不可按；有內容時為實心主色。</text>
 
   <text x="20" y="146" font-size="13" font-weight="600">串流中（loading）</text>
   <line x1="20" y1="158" x2="1100" y2="158" stroke="#1a1a1a" stroke-width="1.5"/>
   <rect x="20" y="174" width="960" height="34" rx="8" fill="#f4f4f4" stroke="#dcdcdc"/>
-  <text x="34" y="196" font-size="12.5" fill="#b4b4b4">（disabled）</text>
+  <text x="34" y="196" font-size="12.5" fill="#b4b4b4">（不可輸入）</text>
   <rect x="994" y="177" width="66" height="28" rx="7" fill="#f2f2f2" stroke="#dcdcdc"/>
   <text x="1010" y="196" font-size="12">中斷</text>
-  <text x="20" y="228" font-size="11.5" fill="#6b6b6b">送出鈕換成 variant=secondary 的「中斷」；點擊呼叫 AbortController.abort()。</text>
+  <text x="20" y="228" font-size="11.5" fill="#6b6b6b">送出鈕原地換成次要樣式的「中斷」；按下即停止本輪回覆。</text>
 </svg>
-<figcaption>輸入列本身不帶 <code>sticky</code>：釘底由外層區塊負責，用量列與輸入列一起貼齊視窗底部，並以 <code>bg-background</code> 遮擋下方內容。</figcaption>
+<figcaption>兩態的版面高度相同，切換時不該有跳動；按鈕在原位改變身分，滑鼠不必移動就能中斷。</figcaption>
 </figure>
 
 <h2>5. 用量累計列</h2>
@@ -267,7 +258,7 @@
 <svg viewBox="0 0 1120 210" role="img" aria-label="用量累計列的空狀態與有值狀態">
   <rect x="0" y="0" width="1120" height="210" fill="#ffffff"/>
 
-  <text x="20" y="24" font-size="13" font-weight="600">第一輪完成前（usage === null）</text>
+  <text x="20" y="24" font-size="13" font-weight="600">第一輪完成前</text>
   <line x1="20" y1="36" x2="1100" y2="36" stroke="#1a1a1a" stroke-width="1.5"/>
   <rect x="20" y="52" width="960" height="34" rx="8" fill="#ffffff" stroke="#c8c8c8"/>
   <text x="34" y="74" font-size="12.5" fill="#9a9a9a">輸入你的財務問題……（Shift+Enter 換行）</text>
@@ -283,33 +274,25 @@
   <rect x="994" y="186" width="66" height="18" rx="7" fill="#5B1220" opacity="0.5"/>
   <text x="1013" y="199" font-size="10" fill="#ffffff">送出</text>
 </svg>
-<figcaption>用量列 <code>pt-2 text-xs text-muted-foreground</code>，與輸入列同屬 <code>sticky bottom-0</code> 區塊，捲動時一起釘在底部。</figcaption>
+<figcaption>用量列與輸入列同屬釘底區塊，捲動時一起貼齊視窗底部；用量列出現與否會改變該區塊的高度，訊息列表隨之讓位。</figcaption>
 </figure>
 
-<h3>四種 token 分類</h3>
-<p>標籤沿用 Anthropic 生態圈慣例。注意 <code>in</code> 的實際語意是「未命中快取的輸入」而非「總輸入」 —— 此頁受眾為開發者，若日後改給非開發者看，標籤應重新檢討。</p>
-<table>
-  <tr><th>標籤</th><th>意思</th><th><code>ModelUsage</code> 來源</th></tr>
-  <tr><td><code>in</code></td><td>未命中快取的輸入 token</td><td><code>inputTokens</code></td></tr>
-  <tr><td><code>cache_c</code></td><td>寫入快取的輸入 token</td><td><code>cacheCreationInputTokens</code></td></tr>
-  <tr><td><code>cache_r</code></td><td>命中快取讀取的輸入 token</td><td><code>cacheReadInputTokens</code></td></tr>
-  <tr><td><code>out</code></td><td>輸出 token</td><td><code>outputTokens</code></td></tr>
-</table>
+<p>四個標籤（<code>in</code>／<code>cache_c</code>／<code>cache_r</code>／<code>out</code>）沿用 Anthropic 生態圈慣例。注意 <code>in</code> 的實際語意是「<strong>未命中快取的</strong>輸入」而非「總輸入」——此頁受眾為開發者，若日後改給非開發者看，標籤應重新檢討。</p>
 
 <h3>累加規則</h3>
 <table>
   <tr><th>情境</th><th>行為</th><th>設計理由</th></tr>
-  <tr><td>正常完成的輪次</td><td>計入</td><td>後端在 <code>done</code> 之前送 <code>usage</code> 事件</td></tr>
-  <tr><td>失敗的輪次（turn 用盡、API 過載）</td><td><strong>計入</strong></td><td>那些 token 確實已消耗，漏掉會低報。後端把 <code>usage</code> 排在 <code>error</code> 之前送出 —— 前端一收到 <code>error</code> 就中止解析，排在後面會被漏接</td></tr>
-  <tr><td>中斷的輪次</td><td><strong>不計入</strong>，且不特別標示</td><td><code>query()</code> 被 abort 時 <code>result</code> 訊息不會產生，用量無從取得。那些 token 實際上已消耗，但估算會是編造的；代價是顯示數字略低於實際帳單</td></tr>
-  <tr><td><code>sessionId</code> 變更（fork）</td><td>不歸零</td><td>使用者看到的是同一個對話視窗、同一串訊息；fork 是 SDK 的實作細節，不該漏到 UI</td></tr>
-  <tr><td>重新整理</td><td>歸零</td><td>累加在前端 state，「這一輪 session」＝「我打開這頁到現在」</td></tr>
+  <tr><td>正常完成的輪次</td><td>計入</td><td>該輪結束前，後端會回報這一輪的用量</td></tr>
+  <tr><td>失敗的輪次（次數用盡、服務過載）</td><td><strong>計入</strong></td><td>那些 token 確實已消耗，漏掉會低報。用量必須<strong>搶在錯誤之前</strong>回報——前端一收到錯誤就停止解析，排在後面會被漏接</td></tr>
+  <tr><td>中斷的輪次</td><td><strong>不計入</strong>，且不特別標示</td><td>中斷時該輪不會產生結算訊息，用量無從取得。那些 token 實際上已消耗，但估算會是編造的；代價是顯示數字略低於實際帳單</td></tr>
+  <tr><td>對話在後端被分支</td><td>不歸零</td><td>使用者看到的是同一個對話視窗、同一串訊息；分支是後端的實作細節，不該漏到畫面上</td></tr>
+  <tr><td>重新整理</td><td>歸零</td><td>累計只存在於這個分頁，「這一輪 session」＝「我打開這頁到現在」</td></tr>
 </table>
 
-<p class="meta">累加刻意做在前端：後端每次請求各自呼叫 <code>query()</code>、維持無狀態，前端本來就持有整段對話，天然是這一輪 session 的邊界持有者。詞彙定義見 <code>CONTEXT.md</code>。</p>
+<p class="meta">累加刻意由前端負責：後端每次請求各自獨立、維持無狀態，前端本來就持有整段對話，天然是這一輪 session 的邊界持有者。詞彙定義見 <code>CONTEXT.md</code>。</p>
 
 <h2>6. 頁面狀態流</h2>
-<p>頁面共四種可見狀態，由 <code>messages</code>、<code>loading</code> 與串流事件共同決定。</p>
+<p>頁面共四種可見狀態，由「有沒有訊息」「是否正在串流」與該輪的結束方式共同決定。</p>
 
 <figure>
 <svg viewBox="0 0 1120 260" role="img" aria-label="頁面狀態流程圖">
@@ -327,9 +310,9 @@
   <text x="278" y="138" font-size="11" fill="#6b6b6b">思考中 · 中斷鈕</text>
 
   <path d="M444 110 L506 78" stroke="#1a1a1a" stroke-width="1.5" marker-end="url(#ar)"/>
-  <text x="446" y="82" font-size="10.5" fill="#0f5c8c">done</text>
+  <text x="446" y="82" font-size="10.5" fill="#0f5c8c">完成</text>
   <path d="M444 140 L506 172" stroke="#1a1a1a" stroke-width="1.5" marker-end="url(#ar)"/>
-  <text x="446" y="182" font-size="10.5" fill="#0f5c8c">error / abort</text>
+  <text x="446" y="182" font-size="10.5" fill="#0f5c8c">失敗／中斷</text>
 
   <rect x="508" y="34" width="200" height="70" rx="8" fill="#ffffff" stroke="#1a1a1a"/>
   <text x="530" y="62" font-size="13" font-weight="600">Answered</text>
@@ -346,7 +329,7 @@
 
   <rect x="772" y="40" width="136" height="60" rx="8" fill="#f7f7f7" stroke="#1a1a1a"/>
   <text x="790" y="66" font-size="12" font-weight="600">續問</text>
-  <text x="784" y="86" font-size="10.5" fill="#6b6b6b">沿用 sessionId</text>
+  <text x="784" y="86" font-size="10.5" fill="#6b6b6b">沿用同一對話</text>
 
   <rect x="772" y="156" width="136" height="60" rx="8" fill="#f7f7f7" stroke="#1a1a1a"/>
   <text x="790" y="182" font-size="12" font-weight="600">重試</text>
@@ -365,41 +348,24 @@
 </figure>
 
 <h2>7. 設計代幣</h2>
+<p>底色、文字、框線、錯誤色等一律沿用 shadcn 預設，非本頁的設計決策。以下兩項是本專案真正選過的顏色。</p>
 <table>
   <tr><th>用途</th><th>Token</th><th>值（light）</th></tr>
-  <tr><td>頁面底色</td><td><code>--background</code></td><td><span class="swatch" style="background:#ffffff"></span>oklch(1 0 0)</td></tr>
-  <tr><td>主文字</td><td><code>--foreground</code></td><td><span class="swatch" style="background:#252525"></span>oklch(0.145 0 0)</td></tr>
   <tr><td>使用者泡泡／作用中導覽項</td><td><code>--primary</code></td><td><span class="swatch" style="background:#5B1220"></span>oklch(0.32 0.14 15)</td></tr>
-  <tr><td>次要文字（提示、工具名）</td><td><code>--muted-foreground</code></td><td><span class="swatch" style="background:#8E8E8E"></span>oklch(0.556 0 0)</td></tr>
-  <tr><td>分隔線、卡片外框</td><td><code>--border</code></td><td><span class="swatch" style="background:#EBEBEB"></span>oklch(0.922 0 0)</td></tr>
-  <tr><td>錯誤狀態</td><td><code>--destructive</code></td><td><span class="swatch" style="background:#D13212"></span>oklch(0.577 0.245 27.325)</td></tr>
-  <tr><td>圖表數列</td><td><code>--chart-1</code> … <code>--chart-5</code></td><td>灰階由淺至深，依序循環套用</td></tr>
-  <tr><td>圓角</td><td><code>--radius</code></td><td>0.625rem（卡片 <code>rounded-xl</code> = ×1.4）</td></tr>
+  <tr><td>圖表數列／扇形</td><td><code>--chart-1</code> … <code>--chart-6</code></td><td>與 <code>--primary</code> 同色相（hue 15）的酒紅色階，明度深淺交錯：<span class="swatch" style="background:#5B1220"></span>0.32　<span class="swatch" style="background:#B25A63"></span>0.62　<span class="swatch" style="background:#7C2733"></span>0.42　<span class="swatch" style="background:#D3888C"></span>0.72　<span class="swatch" style="background:#98404B"></span>0.52　<span class="swatch" style="background:#EDBCBD"></span>0.82</td></tr>
 </table>
 
-<h2>8. 尺寸速查</h2>
-<table>
-  <tr><th>項目</th><th>值</th></tr>
-  <tr><td>導覽列高度</td><td>56px（<code>h-14</code>）</td></tr>
-  <tr><td>內容欄最大寬</td><td>768px（<code>max-w-3xl</code>）＋左右 <code>px-4</code></td></tr>
-  <tr><td>訊息間距</td><td>16px（<code>gap-4</code>）</td></tr>
-  <tr><td>列表上下留白</td><td>32px（<code>py-8</code>）</td></tr>
-  <tr><td>使用者泡泡最大寬</td><td>80%</td></tr>
-  <tr><td>助手卡片寬</td><td>有圖表 90%（固定）／純文字 最大 90%</td></tr>
-  <tr><td>圖表繪圖區高</td><td>240px（固定）</td></tr>
-  <tr><td>圖表卡間距</td><td>12px（<code>gap-3</code>）</td></tr>
-  <tr><td>輸入框高度</td><td>單行 32px 起，自動長高至 <code>max-h-40</code>（160px）</td></tr>
-  <tr><td>用量列文字</td><td>12px（<code>text-xs</code>），上方留白 8px（<code>pt-2</code>）</td></tr>
-</table>
+<h3>圖表配色的分配規則</h3>
+<p>色序<strong>不是依數列序號循環</strong>，而是<strong>依類別名稱</strong>查一份對照表：查的鍵就是讀者在圖例上看到的那個名稱。同名即同色，因此「銷售部」在折線圖與餅圖裡是同一個顏色，讀者不必在兩張圖之間重新對照圖例。</p>
+<p>對照表的範圍是<strong>整段對話的所有圖表</strong>，而非單一訊息——跨訊息的兩張圖也共用同一份色序。色序取「首次出現順序」；對照表由當前的圖表清單推導而得，不是邊畫邊累積寫入的，因此串流過程中畫面反覆更新也不會讓顏色漂移。明度刻意深淺交錯而非由深到淺排列，相鄰兩個數列才有足夠對比。</p>
 
-<h2>9. 互動與無障礙備註</h2>
+<h2>8. 互動與無障礙備註</h2>
 <ul>
-  <li><strong>顯示處理過程開關</strong>：純顯示濾鏡。關閉期間工具歷程照常收集，重新開啟後完整可見；刻意不做持久化。</li>
-  <li><strong>鍵盤</strong>：<code>Enter</code> 送出、<code>Shift+Enter</code> 換行；輸入法組字中的 <code>Enter</code> 為選字，不送出。</li>
-  <li><strong>狀態圖示</strong>：三種狀態圖示皆帶 <code>aria-label</code>（進行中／成功／失敗），不單靠顏色傳達語意。</li>
+  <li><strong>顯示處理過程開關</strong>：<strong>預設關閉</strong>——工具歷程是輔助資訊，不是每次對話都要看的內容，預設開啟會讓每則回應頂端都多出一段雜訊。它是純顯示濾鏡：關閉期間歷程照常收集，重新開啟後完整可見。刻意不記住選擇，重新整理即回到關閉。</li>
+  <li><strong>鍵盤</strong>：<code>Enter</code> 送出、<code>Shift+Enter</code> 換行；輸入法組字中的 <code>Enter</code> 為選字，不可誤觸送出。</li>
+  <li><strong>狀態圖示</strong>：三種狀態皆有文字標籤供輔助技術朗讀（進行中／成功／失敗），不單靠顏色傳達語意。</li>
   <li><strong>訊息語意</strong>：使用者與助手以位置（左／右）＋色塊／卡片雙重區分，非僅靠顏色。</li>
-  <li><strong>長字串</strong>：工具全名以 <code>break-all</code> 換行，避免窄欄溢出。</li>
-  <li><strong>用量數字</strong>：以 <code>toLocaleString()</code> 顯示千分位（如 <code>11,604</code>），長數字才讀得出量級。</li>
+  <li><strong>用量數字</strong>：顯示千分位（如 <code>11,604</code>），長數字才讀得出量級。</li>
 </ul>
 
 </main>
