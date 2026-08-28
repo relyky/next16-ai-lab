@@ -20,15 +20,16 @@ const MAX_SERIES = 6;
 /**
  * 氣泡半徑上限（px）。
  *
- * 圖表容器高度固定、繪圖區約 180–200px，半徑 40（直徑 80px）約佔四成，
- * 仍留得下其他點的空間。與資料列數／數列數上限是同一種東西——
- * 避免 LLM 產生過大的值拖垮圖表可讀性。詳見 docs/adr/0005。
+ * 圖表容器高度固定、繪圖區約 180–200px。原訂 40（直徑 80px）實測在 20 筆資料下
+ * 氣泡會互相吞沒、糊成一片；30 仍足以表達差異而不至於蓋掉鄰近的點。
+ * 與資料列數／數列數上限是同一種東西——避免 LLM 產生過大的值拖垮圖表可讀性。
+ * 詳見 docs/adr/0005。
  *
  * 與 DEFAULT_BUBBLE_RADIUS_RANGE 一同匯出：這兩個值同時出現在 schema 的
  * describe、執行期檢查、tool 描述與前端換算四處，散成字面值會在改動時漏改，
  * 而 tool 描述正是這條契約對 LLM 唯一可見的落點（ADR 0003）。
  */
-export const MAX_BUBBLE_RADIUS = 40;
+export const MAX_BUBBLE_RADIUS = 30;
 
 /**
  * 未提供 range 時前端套用的預設半徑範圍（px）；換算後與 recharts 自身的預設同一量級。
@@ -191,6 +192,20 @@ export const scatterChartInputShape = {
     .max(MAX_SERIES)
     .describe(`要繪製的數列，其 key 為 Y 軸數值欄位，1~${MAX_SERIES} 組`),
   /**
+   * 三個維度各自的單位；接在該軸的刻度後面（如 `45元`、`1.2M件`）。
+   *
+   * 散佈圖的兩個軸都是裸數字，刻度本身讀不出「這是什麼」。單位接在刻度上
+   * 同時解決「這是什麼」與「數量級多大」兩件事——比照 recharts 官方
+   * SimpleScatterChart 的 `unit`。
+   *
+   * Y 軸單位採**頂層 `yUnit`** 而非 `series[].unit`：Y 軸刻度只能顯示一種單位，
+   * 掛在數列上會允許「多數列各自宣稱不同單位」這種畫不出來的組合。
+   *
+   * 三者皆選填，未提供時該軸刻度維持純數字。詳見 docs/adr/0006。
+   */
+  xUnit: z.string().min(1).optional().describe("X 軸的單位，接在刻度數值後（如「元」）"),
+  yUnit: z.string().min(1).optional().describe("Y 軸的單位，接在刻度數值後（如「千件」）"),
+  /**
    * 第三個維度：氣泡大小。散佈圖相對於其他圖表的獨特價值。
    *
    * 選填，未提供時所有點大小相同。值須非負——氣泡大小語意上是「量值」，
@@ -204,6 +219,25 @@ export const scatterChartInputShape = {
       "作為氣泡大小的欄位，須存在於 data 中且各列皆為非負數值；" +
         "未提供時所有資料點大小相同"
     ),
+  /**
+   * 氣泡大小這個維度在圖例上的顯示名稱與單位。
+   *
+   * 氣泡大小是三個維度中唯一沒有軸刻度可依附的——它在圖例區自成一項
+   * 「大小：{sizeLabel ?? sizeKey}」。`sizeLabel` 未提供時回退 `sizeKey`，
+   * 與 `series[].label` 的既有模式一致。`sizeUnit` 反映在 Tooltip 的氣泡數值上。
+   *
+   * 兩者皆選填，且只在提供 `sizeKey` 時有意義。
+   */
+  sizeLabel: z
+    .string()
+    .min(1)
+    .optional()
+    .describe("氣泡大小在圖例上的顯示名稱；未提供時使用 sizeKey"),
+  sizeUnit: z
+    .string()
+    .min(1)
+    .optional()
+    .describe("氣泡大小的單位，顯示於 Tooltip 的氣泡數值後（如「萬元」）"),
   /**
    * 氣泡半徑範圍（px），單位是**半徑**而非 recharts 的面積。
    *
@@ -524,16 +558,31 @@ export function buildScatterChartResult(input: unknown): ChartToolResult {
   const parsed = parseOrError(scatterChartInputSchema, input);
   if (!parsed.ok) return parsed.error;
 
-  const { data, xKey, series, sizeKey, range } = parsed.value;
+  const { data, xKey, series, sizeKey, sizeLabel, sizeUnit, range } = parsed.value;
 
   const missingKeys = findMissingCategoryAndSeriesKeys(parsed.value, xKey);
   if (missingKeys) return missingKeys;
 
-  // 參數組合的檢查排在逐列掃描之前：兩者都錯時，先回報成本較低的那個，
-  // LLM 少一輪往返。傳了 range 卻沒傳 sizeKey 時回報錯誤而非靜默忽略：
-  // 靜默忽略會讓 LLM 以為自己成功調了大小。
-  if (range !== undefined && sizeKey === undefined) {
-    return toolError("range 須與 sizeKey 同時提供；只傳 range 時氣泡大小沒有可映射的欄位");
+  // 參數組合的檢查排在逐列掃描之前：兩者都錯時，先回報成本較低的那個，LLM 少一輪往返。
+  //
+  // range / sizeLabel / sizeUnit 三者都只描述「氣泡大小」這個維度，沒有 sizeKey
+  // 時就沒有維度可描述。三條是同一條規則，故走同一張表而非各寫各的 if——
+  // 日後再加一個氣泡相關的選填欄位，只需多一列。
+  //
+  // 明確回報而非靜默忽略：靜默忽略會讓 LLM 以為自己成功調了大小或標了名稱，
+  // 它拿不到任何訊號，也就不會重試。
+  const bubbleOnlyFields = [
+    ["range", range, "沒有可映射的欄位"],
+    ["sizeLabel", sizeLabel, "沒有氣泡大小這個維度可標示"],
+    ["sizeUnit", sizeUnit, "沒有氣泡大小這個維度可標示"],
+  ] as const;
+
+  if (sizeKey === undefined) {
+    for (const [field, value, reason] of bubbleOnlyFields) {
+      if (value !== undefined) {
+        return toolError(`${field} 須與 sizeKey 同時提供；只傳 ${field} 時${reason}`);
+      }
+    }
   }
 
   // X 軸與各數列 key 都是數值軸，逐列檢查同一條規則。

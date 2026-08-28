@@ -8,6 +8,7 @@ import {
   buildPieChartResult,
   buildRadarChartResult,
   buildScatterChartResult,
+  MAX_BUBBLE_RADIUS,
 } from "./chart-tool";
 
 const validInput = {
@@ -658,23 +659,24 @@ describe("buildScatterChartResult 的氣泡大小", () => {
     expect(result.isError).toBe(true);
   });
 
-  // 半徑上限 40：過大的氣泡會蓋住其他資料點。
-  it("range 最大半徑超過上限時回傳 isError", () => {
+  // 過大的氣泡會蓋住其他資料點；斷言引用常數而非字面值，
+  // 上限改動時錯誤訊息與測試才會一起跟進。
+  it("range 最大半徑超過上限時回傳 isError，訊息帶出上限", () => {
     const result = buildScatterChartResult({
       ...validScatterInput,
       sizeKey: "profit",
-      range: [4, 41],
+      range: [4, MAX_BUBBLE_RADIUS + 1],
     });
 
     expect(result.isError).toBe(true);
-    expect(errorTextOf(result)).toContain("40");
+    expect(errorTextOf(result)).toContain(String(MAX_BUBBLE_RADIUS));
   });
 
   it("range 最大半徑剛好等於上限時通過", () => {
     const result = buildScatterChartResult({
       ...validScatterInput,
       sizeKey: "profit",
-      range: [4, 40],
+      range: [4, MAX_BUBBLE_RADIUS],
     });
 
     expect(result.isError).toBeFalsy();
@@ -702,5 +704,70 @@ describe("buildScatterChartResult 的氣泡大小", () => {
     const message = errorTextOf(result);
     expect(message).toContain("range");
     expect(message).toContain("sizeKey");
+  });
+});
+
+/**
+ * 四個選填的標示欄位（#68）：散佈圖的三個維度在靜態畫面上要讀得出來，
+ * 而這四個欄位是那些標示的唯一來源。
+ */
+describe("buildScatterChartResult 的維度標示欄位", () => {
+  it("四個欄位原樣進入圖表定義", () => {
+    const input = {
+      ...validScatterInput,
+      xUnit: "元",
+      yUnit: "千件",
+      sizeKey: "profit",
+      sizeLabel: "利潤",
+      sizeUnit: "萬元",
+    };
+    const result = buildScatterChartResult(input);
+
+    expect(result.isError).toBeFalsy();
+    expect(chartOf(result)).toEqual({ type: "scatter", ...input });
+  });
+
+  // 圖表定義 JSON 保持稀疏：沒傳就不該憑空出現該欄位。
+  it("四個欄位未提供時圖表定義不出現該欄位", () => {
+    const chart = chartOf(buildScatterChartResult(validScatterInput));
+
+    for (const field of ["xUnit", "yUnit", "sizeLabel", "sizeUnit"]) {
+      expect(chart).not.toHaveProperty(field);
+    }
+  });
+
+  // 兩個軸的單位與氣泡無關，不需要 sizeKey 就能單獨提供。
+  it("只提供 xUnit / yUnit 時通過，不需要 sizeKey", () => {
+    const result = buildScatterChartResult({
+      ...validScatterInput,
+      xUnit: "元",
+      yUnit: "千件",
+    });
+
+    expect(result.isError).toBeFalsy();
+  });
+
+  /**
+   * sizeLabel / sizeUnit 描述的是氣泡這個維度，沒有 sizeKey 時沒有維度可描述。
+   * 同 range：明確回報而非靜默忽略，否則 LLM 會以為自己成功標了名稱。
+   */
+  it.each(["sizeLabel", "sizeUnit"])(
+    "只傳 %s 卻沒傳 sizeKey 時回傳 isError",
+    (field) => {
+      const result = buildScatterChartResult({
+        ...validScatterInput,
+        [field]: "利潤",
+      });
+
+      expect(result.isError).toBe(true);
+      expect(errorTextOf(result)).toContain(field);
+    }
+  );
+
+  // 空字串是「有這個欄位但沒有內容」，畫出來的標示會是空白，故在 schema 層擋下。
+  it.each(["xUnit", "yUnit"])("%s 為空字串時回傳 isError", (field) => {
+    const result = buildScatterChartResult({ ...validScatterInput, [field]: "" });
+
+    expect(result.isError).toBe(true);
   });
 });

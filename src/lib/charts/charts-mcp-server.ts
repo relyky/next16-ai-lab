@@ -103,8 +103,14 @@ export const scatterChartTool = tool(
     "xKey 指定作為 X 軸的欄位，series 指定作為 Y 軸的數值欄位；" +
     "X 軸與各數列 key 都必須是數值欄位（可為負數），非數值會被拒絕。" +
     "配色以每組數列一色：可於 series[].color 傳 hex 色碼指定；未提供時前端套用預設配色。" +
+    "散佈圖兩軸都是裸數字，讀者無法從刻度看出畫的是什麼——" +
+    "資料有單位時務必傳選填的 xUnit 與 yUnit（如「元」「千件」），單位會接在該軸刻度後面；" +
+    "未提供時刻度維持純數字。" +
     "要在同一張圖上多讀一個維度時，用選填的 sizeKey 指向一個非負數值欄位，" +
     "各點會依該值畫成大小不同的氣泡；未提供 sizeKey 時所有點大小相同。" +
+    "氣泡大小沒有軸刻度可依附，它在圖例上自成一項，" +
+    "名稱取選填的 sizeLabel（未提供時用 sizeKey），單位取選填的 sizeUnit（顯示於 Tooltip）；" +
+    "兩者皆須與 sizeKey 同時提供。" +
     `選填的 range 是氣泡的 [最小半徑, 最大半徑]（單位 px，最大半徑上限 ${MAX_BUBBLE_RADIUS}），` +
     `未提供時前端套用預設 [${DEFAULT_BUBBLE_RADIUS_RANGE.join(", ")}]；` +
     "range 須與 sizeKey 同時提供。",

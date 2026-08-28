@@ -2,17 +2,20 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { render as baseRender, screen } from "@testing-library/react";
 
 import {
-  bubbleAreaRange,
+  bubbleAxisLabels,
+  bubbleRadiusAt,
   ChartCard,
   ChartPaletteProvider,
   formatAxisTick,
   renderSectorLabel,
+  scatterLegendPayload,
   seriesColorAt,
 } from "./chart-card";
 import {
   DEFAULT_BUBBLE_RADIUS_RANGE,
   MAX_BUBBLE_RADIUS,
   type ChartDefinition,
+  type ScatterChartDefinition,
 } from "@/lib/charts/chart-tool";
 
 /**
@@ -568,9 +571,16 @@ const multiSeriesScatter: ChartDefinition = {
   ],
 };
 
-/** 各資料點的實際著色與幾何都掛在 symbol path 上。 */
+/**
+ * 各資料點的實際著色與幾何都掛在 symbol path 上。
+ *
+ * 限縮在 `.recharts-scatter-symbol` 之下：圖例的圓形圖示也是 `path.recharts-symbols`，
+ * 不限縮會把它一併算成資料點。
+ */
 function scatterSymbolsOf(container: HTMLElement) {
-  return Array.from(container.querySelectorAll("path.recharts-symbols"));
+  return Array.from(
+    container.querySelectorAll(".recharts-scatter-symbol path.recharts-symbols")
+  );
 }
 
 /** symbol 的寬度即該氣泡的直徑；jsdom 下 recharts 仍會算出這個屬性。 */
@@ -654,9 +664,16 @@ describe("ChartCard 散佈圖", () => {
     expect([...fills].sort()).toEqual(["#ff0000", "var(--chart-1)"]);
   });
 
-  it("單一數列時不渲染 Legend", () => {
+  /**
+   * 散佈圖一律顯示圖例，單一數列也不例外——這是它與折線／長條／區域／雷達圖
+   * 的刻意分歧。後者的 X 軸把類別名稱寫在刻度上，Y 軸語意由該脈絡撐住；
+   * 散佈圖兩軸都是裸數字，沒有脈絡可倚靠，單一數列正是最需要圖例的情境。
+   */
+  it("單一數列時仍渲染 Legend 並列出該數列 label", () => {
     const { container } = render(<ChartCard chart={scatterChart} />);
-    expect(container.querySelector(".recharts-legend-wrapper")).toBeNull();
+
+    expect(container.querySelector(".recharts-legend-wrapper")).not.toBeNull();
+    expect(screen.getByText("銷量")).toBeInTheDocument();
   });
 
   it("多數列時渲染 Legend 並列出各數列 label", () => {
@@ -767,7 +784,9 @@ describe("ChartCard 散佈圖", () => {
     const gridLine = container.querySelector(".recharts-cartesian-grid-horizontal line");
     const plotLeft = Number(gridLine?.getAttribute("x"));
     const plotRight = plotLeft + Number(gridLine?.getAttribute("width"));
-    const surface = container.querySelector(".recharts-surface");
+    // 圖例的圖示也各有一個 `.recharts-surface`（14px 見方），取第一個會抓到它；
+    // 圖表本身的那一個掛在 `.recharts-wrapper` 直屬的 svg 上。
+    const surface = container.querySelector(".recharts-wrapper > .recharts-surface");
     const plotBottom = Number(surface?.getAttribute("height"));
 
     // 氣泡以資料點為圓心，四個方向都可能溢出。
@@ -791,37 +810,228 @@ describe("ChartCard 散佈圖", () => {
 
     expect(maxRadius).toBeCloseTo(DEFAULT_BUBBLE_RADIUS_RANGE[1]);
   });
+
+  /**
+   * 最小氣泡的半徑須等於 range 的最小值——即使資料不含 0。
+   * recharts 內建映射固定從 0 起算，資料從 10 起算時最小氣泡實測 13.87 而非 6
+   * （issue #69 案例 B）。這條測試守著「起算點是 dataMin」這個修正。
+   */
+  it("最小氣泡的半徑等於 range 的最小值，即使資料不含 0", () => {
+    const { container } = render(
+      <ChartCard
+        chart={{
+          ...scatterChart,
+          data: [
+            { price: 10, sales: 100, profit: 10 },
+            { price: 20, sales: 200, profit: 100 },
+          ],
+          sizeKey: "profit",
+          range: [6, MAX_BUBBLE_RADIUS],
+        }}
+      />
+    );
+    const radii = bubbleWidthsOf(container).map((w) => w / 2);
+
+    expect(Math.min(...radii)).toBeCloseTo(6);
+    expect(Math.max(...radii)).toBeCloseTo(MAX_BUBBLE_RADIUS);
+  });
+
+  /**
+   * 只測兩端點抓不到 issue #69 的壓縮現象——面積線性下兩端點也是對的，
+   * 錯的是中段。故取均勻分布的資料，檢查中間那一顆確實落在 0.75 次方曲線上。
+   */
+  it("均勻分布的資料，中段氣泡不擠在高值區", () => {
+    const { container } = render(
+      <ChartCard
+        chart={{
+          ...scatterChart,
+          data: [
+            { price: 10, sales: 100, profit: 0 },
+            { price: 20, sales: 200, profit: 50 },
+            { price: 30, sales: 300, profit: 100 },
+          ],
+          sizeKey: "profit",
+          range: [6, 30],
+        }}
+      />
+    );
+    const radii = bubbleWidthsOf(container)
+      .map((w) => w / 2)
+      .sort((a, b) => a - b);
+
+    // 0.75 次方：6 + 0.5^0.75 * 24 = 20.27。面積線性會是 22.97，半徑線性 18.00。
+    expect(radii[1]).toBeCloseTo(6 + 0.5 ** 0.75 * 24, 1);
+  });
+
+  // 兩軸單位接在刻度後面，讀者不必 hover 就讀得出這個維度是什麼。
+  it("提供 xUnit / yUnit 時刻度渲染為數值加單位", () => {
+    const { container } = render(
+      <ChartCard chart={{ ...scatterChart, xUnit: "元", yUnit: "件" }} />
+    );
+    const ticks = Array.from(
+      container.querySelectorAll(".recharts-cartesian-axis-tick-value")
+    ).map((el) => el.textContent);
+
+    expect(ticks.some((t) => t?.endsWith("元"))).toBe(true);
+    expect(ticks.some((t) => t?.endsWith("件"))).toBe(true);
+  });
+
+  /**
+   * 單位與大數值縮寫是兩條獨立路徑（`tickFormatter` 與 `unit`），
+   * 疊加後的實際輸出必須是 `1.2M件` 這種形狀，而不是其中一條蓋掉另一條。
+   */
+  it("單位與大數值縮寫並存", () => {
+    const { container } = render(
+      <ChartCard
+        chart={{
+          ...scatterChart,
+          data: [
+            { price: 10, sales: 1_000_000 },
+            { price: 20, sales: 4_000_000 },
+          ],
+          yUnit: "件",
+        }}
+      />
+    );
+    const yTicks = Array.from(
+      container.querySelectorAll(".recharts-cartesian-axis-tick-value")
+    )
+      .filter((el) => el.getAttribute("text-anchor") === "end")
+      .map((el) => el.textContent);
+
+    expect(yTicks.some((t) => /M件$/.test(t ?? ""))).toBe(true);
+  });
+
+  // 未提供單位時刻度維持純數字——選填欄位不該憑空改變既有輸出。
+  it("未提供單位時刻度維持純數字", () => {
+    const { container } = render(<ChartCard chart={scatterChart} />);
+    const ticks = Array.from(
+      container.querySelectorAll(".recharts-cartesian-axis-tick-value")
+    ).map((el) => el.textContent ?? "");
+
+    expect(ticks.every((t) => /^-?[\d.]+[KMB]?$/.test(t))).toBe(true);
+  });
 });
 
 /**
- * 半徑→面積的換算單獨測試：jsdom 不產生 SVG 幾何，此換算在渲染斷言中驗不到。
- * 平方與圓周率是兩個易錯點——寫成 `2 * π * r` 或漏掉平方都會過不了。
+ * 圖例項目的組成規則單獨測試：不必渲染整張圖就能驗，也才驗得到項目順序。
  */
-describe("bubbleAreaRange", () => {
-  it("依 πr² 換算自訂的半徑範圍", () => {
-    expect(bubbleAreaRange([4, 20])).toEqual([Math.PI * 16, Math.PI * 400]);
+describe("scatterLegendPayload", () => {
+  const base = scatterChart as ScatterChartDefinition;
+
+  it("未提供 sizeKey 時只有各數列", () => {
+    expect(scatterLegendPayload(base, new Map()).map((i) => i.value)).toEqual(["銷量"]);
   });
 
-  it("未提供時套用預設的 [4, 12]", () => {
-    expect(bubbleAreaRange()).toEqual([Math.PI * 16, Math.PI * 144]);
-    expect(bubbleAreaRange()).toEqual(bubbleAreaRange(DEFAULT_BUBBLE_RADIUS_RANGE));
+  it("提供 sizeKey 時在數列之後追加「大小」項", () => {
+    const payload = scatterLegendPayload({ ...base, sizeKey: "profit" }, new Map());
+
+    expect(payload.map((i) => i.value)).toEqual(["銷量", "大小：profit"]);
   });
 
-  // 面積與半徑是平方關係：半徑翻倍，面積變四倍。寫成線性換算會過不了。
-  it("半徑翻倍時面積變為四倍", () => {
-    const [, small] = bubbleAreaRange([1, 5]);
-    const [, large] = bubbleAreaRange([1, 10]);
+  // 與 series[].label「未提供時使用 key」的既有模式一致。
+  it("sizeLabel 勝過 sizeKey", () => {
+    const payload = scatterLegendPayload(
+      { ...base, sizeKey: "profit", sizeLabel: "利潤" },
+      new Map()
+    );
 
-    expect(large / small).toBeCloseTo(4);
+    expect(payload.at(-1)?.value).toBe("大小：利潤");
   });
 
-  // 具體數值：ADR 中舉的 [64, 400] 面積對應約 4.5px 到 11.3px 半徑，
-  // 反向驗證換算方向沒有寫反。
-  it("半徑 4.5 與 11.3 換算出的面積約為 64 與 400", () => {
-    const [min, max] = bubbleAreaRange([4.5, 11.3]);
+  /**
+   * 「大小」項表達的是大小而非顏色，圖示必須是中性空心圓，
+   * 與數列的實心色圓區分得開，否則會被讀成第四組數列。
+   */
+  it("「大小」項以自訂空心圓圖示取代數列的實心色圓", () => {
+    const payload = scatterLegendPayload({ ...base, sizeKey: "profit" }, new Map());
 
-    // ADR 中的 4.5 / 11.3 本身是四捨五入後的半徑，故取整數位級距的容差。
-    expect(min).toBeCloseTo(64, -1);
-    expect(max).toBeCloseTo(400, -1);
+    expect(payload[0].legendIcon).toBeUndefined();
+    expect(payload.at(-1)?.legendIcon).toBeDefined();
+  });
+});
+
+/**
+ * 半徑映射單獨測試：jsdom 不產生 SVG 幾何，此換算在渲染斷言中驗不到。
+ * 兩個缺陷各有一條測試守著——曲線指數與起算點。詳見 docs/adr/0005。
+ */
+describe("bubbleRadiusAt", () => {
+  // 兩端點必須恰好落在契約宣稱的 range 上，否則「最小/最大半徑」是在說謊。
+  it("資料兩端點恰好對應 range 的兩端", () => {
+    expect(bubbleRadiusAt(10, [10, 100], [6, 40])).toBeCloseTo(6);
+    expect(bubbleRadiusAt(100, [10, 100], [6, 40])).toBeCloseTo(40);
+  });
+
+  /**
+   * 起算點是 dataMin 而非 0：recharts 內建映射固定從 0 起算，資料不含 0 時
+   * 最小半徑永遠取不到（issue #69 案例 B 實測 13.87 而非 6）。
+   */
+  it("起算點為資料最小值而非 0", () => {
+    // 資料 [10, 100] 的中點 55 若從 0 起算，正規化值會是 0.55 而非 0.5。
+    const fromDataMin = bubbleRadiusAt(55, [10, 100], [6, 40]);
+    const fromZero = bubbleRadiusAt(55, [0, 100], [6, 40]);
+
+    expect(fromDataMin).not.toBeCloseTo(fromZero);
+    expect(fromDataMin).toBeCloseTo(6 + 0.5 ** 0.75 * 34, 2);
+  });
+
+  /**
+   * 曲線指數 0.75：中段既不擠在高值區（面積線性 `^0.5` 的問題），
+   * 也不是純半徑線性（`^1`）。issue #69 案例 C 的驗收數字。
+   */
+  it("中間值依 0.75 次方曲線落在 26.22（案例 C）", () => {
+    expect(bubbleRadiusAt(50, [0, 100], [6, 40])).toBeCloseTo(26.22, 1);
+  });
+
+  // 對照組：確認實作既不是面積線性也不是半徑線性，而是兩者之間。
+  it("中間值落在半徑線性與面積線性之間", () => {
+    const actual = bubbleRadiusAt(50, [0, 100], [6, 40]);
+    const radiusLinear = 6 + 0.5 * 34; // 23.00
+    const areaLinear = 6 + 0.5 ** 0.5 * 34; // 30.04
+
+    expect(actual).toBeGreaterThan(radiusLinear);
+    expect(actual).toBeLessThan(areaLinear);
+  });
+
+  it("未提供 range 時套用預設的 [4, 12]", () => {
+    expect(bubbleRadiusAt(0, [0, 100])).toBeCloseTo(DEFAULT_BUBBLE_RADIUS_RANGE[0]);
+    expect(bubbleRadiusAt(100, [0, 100])).toBeCloseTo(DEFAULT_BUBBLE_RADIUS_RANGE[1]);
+  });
+
+  /**
+   * 資料值全部相同時沒有可分辨的大小差異，一律取最小半徑：
+   * 取最大半徑會讓一組毫無差異的資料畫出滿版的氣泡，暗示不存在的高值。
+   */
+  it("資料值全部相同時取最小半徑", () => {
+    expect(bubbleRadiusAt(7, [7, 7], [6, 40])).toBe(6);
+  });
+});
+
+/**
+ * 氣泡維度的 Tooltip 標示單獨測試：`ZAxis` 不渲染任何 DOM，這兩個值在渲染
+ * 斷言中驗不到。`sizeUnit` 是三個單位裡唯一沒有刻度可依附的——接錯了畫面上
+ * 看不出來，只能在這裡守住。
+ */
+describe("bubbleAxisLabels", () => {
+  const base = scatterChart as ScatterChartDefinition;
+
+  it("sizeLabel 與 sizeUnit 原樣接到 ZAxis 上", () => {
+    expect(
+      bubbleAxisLabels({
+        ...base,
+        sizeKey: "profit",
+        sizeLabel: "利潤",
+        sizeUnit: "萬元",
+      })
+    ).toEqual({ dataKey: "profit", name: "利潤", unit: "萬元" });
+  });
+
+  // 未提供時回退 sizeKey——與 series[].label 的既有模式一致。
+  it("未提供 sizeLabel 時名稱回退為 sizeKey，未提供 sizeUnit 時無單位", () => {
+    expect(bubbleAxisLabels({ ...base, sizeKey: "profit" })).toEqual({
+      dataKey: "profit",
+      name: "profit",
+      unit: undefined,
+    });
   });
 });

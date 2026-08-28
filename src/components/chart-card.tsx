@@ -14,6 +14,7 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  DefaultLegendContent,
   Legend,
   Cell,
   Line,
@@ -28,6 +29,7 @@ import {
   ResponsiveContainer,
   Scatter,
   ScatterChart,
+  Symbols,
   Tooltip,
   XAxis,
   YAxis,
@@ -39,6 +41,8 @@ import {
   paletteColorFor,
   type ChartPalette,
 } from "@/lib/charts/chart-palette";
+import type { LegendPayload } from "recharts";
+
 import { DEFAULT_BUBBLE_RADIUS_RANGE } from "@/lib/charts/chart-tool";
 import type {
   CartesianChartDefinition,
@@ -334,20 +338,45 @@ function RadarChartView({ chart }: { chart: RadarChartDefinition }) {
 }
 
 /**
- * 半徑範圍（px）換算成 recharts `ZAxis.range` 需要的面積範圍。
+ * 氣泡半徑對資料值的映射曲線指數。
  *
- * recharts 的 `ZAxis.range` 單位是面積（內部以 `radius = sqrt(size / π)` 反推半徑）。
- * 面積在感知上正確——人眼比較圓的大小時比較的是面積——但數字極不直觀
- * （`[64, 400]` 換算成半徑是 4.5px 到 11.3px）。因此契約收半徑，
- * 易錯的換算鎖在這一個具名純函式裡。詳見 docs/adr/0005。
+ * 半徑正比於正規化資料值的 0.75 次方，是兩個極端之間的折衷：
+ * 半徑線性（指數 1）契約最誠實——`range` 說 6–30 就均勻畫 6–30——但放棄了
+ * 「面積在感知上正確」，人眼比較圓的大小時比較的是面積，大值會看起來被過度放大；
+ * 面積線性（指數 0.5，即 recharts `ZAxis.range` 的內建行為）感知正確，
+ * 但 `sqrt` 把中段往高值推，多數真實資料的氣泡因此擠成一團讀不出差異。
+ * 詳見 docs/adr/0005。
+ */
+const BUBBLE_RADIUS_EXPONENT = 0.75;
+
+/**
+ * 依資料值算出該氣泡的半徑（px）。
+ *
+ * 起算點是**資料最小值**而非 0：recharts 內建的 `ZAxis.range` 映射固定從 0 起算，
+ * 只有資料恰好含 0 時最小半徑才取得到——那讓 `range` 的「最小半徑」對多數資料集
+ * 說謊。此處先把值正規化到 [0, 1] 再套曲線，`range` 的兩端因此恆等於資料兩端。
+ *
+ * 值域以 tuple 收下而非拆成兩個參數：`bubbleValueExtent` 本來就回傳這個形狀，
+ * 拆開只是讓呼叫端多一個把兩個數字傳反的機會。
+ *
+ * 資料值全部相同（值域兩端相等）時沒有可分辨的大小差異，一律取最小半徑：
+ * 取最大半徑會讓一組毫無差異的資料畫出滿版的氣泡，暗示了不存在的高值。
  *
  * 匯出並單獨測試：jsdom 不產生 SVG 幾何，此換算在渲染斷言中驗不到。
  */
-export function bubbleAreaRange(
+export function bubbleRadiusAt(
+  value: number,
+  extent: readonly [number, number],
   radiusRange: readonly [number, number] = DEFAULT_BUBBLE_RADIUS_RANGE
-): [number, number] {
-  const [min, max] = radiusRange;
-  return [Math.PI * min * min, Math.PI * max * max];
+): number {
+  const [dataMin, dataMax] = extent;
+  const [minRadius, maxRadius] = radiusRange;
+  if (dataMax <= dataMin) return minRadius;
+
+  const normalized = (value - dataMin) / (dataMax - dataMin);
+  // 值域外的資料點沒有意義，但夾住可保證半徑不超出契約宣稱的範圍。
+  const clamped = Math.min(Math.max(normalized, 0), 1);
+  return minRadius + clamped ** BUBBLE_RADIUS_EXPONENT * (maxRadius - minRadius);
 }
 
 /**
@@ -370,6 +399,151 @@ function bubbleMargin(
 }
 
 /**
+ * 氣泡大小這個維度交給 `ZAxis` 的標示 props。
+ *
+ * `ZAxis` 在本圖表已不參與幾何——半徑由 `bubbleShapeRenderer` 決定——它留下來
+ * 純粹是為了承載 Tooltip 的名稱與單位。抽成具名函式並單獨測試：`ZAxis` 不渲染
+ * 任何 DOM，這兩個值在渲染斷言中驗不到，而 `sizeUnit` 是三個單位裡唯一沒有
+ * 刻度可依附的，接錯了畫面上看不出來。
+ *
+ * 名稱未提供 `sizeLabel` 時回退 `sizeKey`，與 `series[].label` 的既有模式一致。
+ */
+export function bubbleAxisLabels(chart: ScatterChartDefinition) {
+  const { sizeKey, sizeLabel, sizeUnit } = chart;
+
+  return { dataKey: sizeKey, name: sizeLabel ?? sizeKey, unit: sizeUnit };
+}
+
+/**
+ * 氣泡大小那一項的圖例圖示：中性的空心圓。
+ *
+ * 刻意不上色也不填滿：這一項表達的是「大小」而非「顏色」，與數列的實心色圓
+ * 在視覺上必須區分得開，否則讀者會把它讀成第四組數列。以 `currentColor` 描邊，
+ * 深淺色主題下都跟著文字色走。
+ *
+ * 幾何數字對齊 recharts 內建圖示的 14px 見方框（`DefaultLegendContent` 的 SIZE）。
+ */
+const LEGEND_ICON_SIZE = 14;
+
+function BubbleLegendIcon() {
+  const half = LEGEND_ICON_SIZE / 2;
+  return (
+    <circle
+      className="recharts-legend-icon"
+      cx={half}
+      cy={half}
+      r={half - 1}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+    />
+  );
+}
+
+/**
+ * 散佈圖的圖例項目：各數列之後，`sizeKey` 提供時再追加一項「大小」。
+ *
+ * 氣泡大小是三個維度中唯一沒有軸刻度可依附的，圖例是它唯一的靜態標示管道。
+ * 詳見 docs/adr/0006。
+ *
+ * 自行組 payload 而非讓 recharts 從各 `Scatter` 收集：追加的「大小」項不對應
+ * 任何一個 `Scatter`，沒有地方掛得上去。自行組同時也讓數列項與大小項的順序
+ * 明確可控。
+ *
+ * 匯出並單獨測試：圖例項目的組成規則不必渲染整張圖就能驗。
+ */
+export function scatterLegendPayload(
+  chart: ScatterChartDefinition,
+  palette: ChartPalette
+): LegendPayload[] {
+  const { series, sizeKey, sizeLabel } = chart;
+
+  const seriesItems = series.map((s) => ({
+    value: s.label ?? s.key,
+    type: "circle" as const,
+    dataKey: s.key,
+    color: seriesColorAt(s, palette),
+  }));
+
+  if (sizeKey === undefined) return seriesItems;
+
+  return [
+    ...seriesItems,
+    {
+      value: `大小：${sizeLabel ?? sizeKey}`,
+      type: "circle" as const,
+      dataKey: sizeKey,
+      // 文字色跟著主題走；圖示自身由 legendIcon 覆寫成空心圓。
+      color: "currentColor",
+      legendIcon: <BubbleLegendIcon />,
+    },
+  ];
+}
+
+/**
+ * 掃出 `sizeKey` 欄位的值域，供半徑映射的正規化使用。
+ *
+ * 非數值的列已由 tool 端擋下，此處只需忽略——前端不重複那條驗證。
+ * 沒有任何數值時回傳 undefined，呼叫端據此退回 recharts 的預設尺寸。
+ */
+function bubbleValueExtent(
+  data: readonly Record<string, string | number>[],
+  sizeKey: string
+): [number, number] | undefined {
+  const values = data
+    .map((row) => row[sizeKey])
+    .filter((value): value is number => typeof value === "number");
+  if (values.length === 0) return undefined;
+
+  return [Math.min(...values), Math.max(...values)];
+}
+
+/**
+ * 氣泡的自訂 shape：以我們自己算出的半徑覆蓋 recharts 內建的映射。
+ *
+ * 不能只靠 `ZAxis.range`——recharts 內部是「線性映射到面積後再開根號還原半徑」，
+ * 曲線固定為面積線性，且起算點固定為 0，兩者都是 docs/adr/0005 記錄的缺陷。
+ * 這裡改成自己決定半徑，`ZAxis` 只留下來承載 Tooltip 需要的名稱與單位。
+ *
+ * 回傳一個 render function 而非直接當元件用：recharts 把資料點的所有屬性
+ * 攤平成 props 傳進來，半徑要用的原始值只在 `payload` 裡，得由外層先綁好
+ * 值域與範圍才算得出來。
+ *
+ * `size`（面積）、`width`/`height`（直徑）、`x`/`y`（外接框左上角）全部一起覆寫：
+ * recharts 依 `size` 畫路徑，其餘四項則是它算給資料點的外接框，不同步蓋掉的話
+ * 畫出來的圓與它自認的幾何會對不上——測試正是讀 `width` 來驗半徑的。
+ */
+function bubbleShapeRenderer(
+  sizeKey: string,
+  extent: readonly [number, number],
+  range: readonly [number, number] | undefined
+) {
+  return function BubbleSymbol(props: object) {
+    const { cx, cy, payload, ...rest } = props as {
+      cx?: number;
+      cy?: number;
+      payload: Record<string, string | number>;
+    } & Record<string, unknown>;
+
+    const radius = bubbleRadiusAt(Number(payload[sizeKey]), extent, range);
+
+    return (
+      <Symbols
+        {...rest}
+        cx={cx}
+        cy={cy}
+        type="circle"
+        size={Math.PI * radius * radius}
+        width={2 * radius}
+        height={2 * radius}
+        x={cx == null ? undefined : cx - radius}
+        y={cy == null ? undefined : cy - radius}
+      />
+    );
+  };
+}
+
+/**
  * 散佈圖（連續數值 X 軸 × 多數列）：各數列畫成一組資料點。
  *
  * 不進笛卡兒圖的類型對照表——沒有堆疊概念，且 X 軸是連續數值軸而非等距類別軸。
@@ -379,20 +553,24 @@ function bubbleMargin(
  * 所有點被同一個常數尺寸驅動，而 recharts 的預設本來就是這個行為。
  */
 function ScatterChartView({ chart }: { chart: ScatterChartDefinition }) {
-  const { data, xKey, series, sizeKey, range } = chart;
+  const { data, xKey, xUnit, yUnit, series, sizeKey, range } = chart;
   const palette = useChartPalette();
 
   // 單一數列時 Y 軸只承載那一個欄位，其名稱即該軸的名稱；多數列時取其一
   // 會對其餘數列說謊，此時圖例已列出各數列名稱，Y 軸不另取名。
   const yAxisName = series.length === 1 ? (series[0].label ?? series[0].key) : undefined;
 
+  const extent = sizeKey ? bubbleValueExtent(data, sizeKey) : undefined;
+
   return (
     <ScatterChart margin={bubbleMargin(sizeKey, range)}>
       <CartesianGrid strokeDasharray="3 3" />
       {/*
-        三個軸都給 `name`：散佈圖的軸是純數值，刻度本身不說明畫的是什麼，
-        名稱要靠 Tooltip 帶出。這也是 `sizeKey` 這個維度唯一的標示管道——
-        氣泡大小在圖上沒有圖例可依附。比照 recharts 官方 SimpleScatterChart。
+        三個軸都給 `name` 與選填的 `unit`：散佈圖的軸是純數值，刻度本身不說明
+        畫的是什麼。`unit` 接在刻度後面（如 `45元`、`1.2M件`），在**沒有滑鼠
+        互動**的情況下即可讀出這個維度是什麼——AI 對話產生的圖表最常見的用法
+        是截圖轉貼，Tooltip 在那個情境下完全失效。比照 recharts 官方
+        SimpleScatterChart 把資訊拆進刻度與圖例兩處。
 
         不用旋轉的軸標題：recharts 的 Label 依水平可用寬度自動斷詞，
         中文旋轉後會被折成一字一行，與函式庫對抗不划算。
@@ -401,16 +579,38 @@ function ScatterChartView({ chart }: { chart: ScatterChartDefinition }) {
         type="number"
         dataKey={xKey}
         name={xKey}
+        unit={xUnit}
         tickFormatter={formatAxisTick}
       />
       {/* width="auto" 讓軸自行量出刻度文字所需寬度，不必猜一個魔術數字。 */}
-      <YAxis type="number" name={yAxisName} width="auto" tickFormatter={formatAxisTick} />
+      <YAxis
+        type="number"
+        name={yAxisName}
+        unit={yUnit}
+        width="auto"
+        tickFormatter={formatAxisTick}
+      />
       {sizeKey ? (
-        <ZAxis type="number" dataKey={sizeKey} name={sizeKey} range={bubbleAreaRange(range)} />
+        /*
+          半徑改由 BubbleSymbol 自行決定，故不給 `range`——留著只會讓讀者
+          以為半徑是它算的。`ZAxis` 在此純粹承載 Tooltip 的名稱與單位。
+        */
+        <ZAxis type="number" {...bubbleAxisLabels(chart)} />
       ) : null}
       <Tooltip />
-      {/* 只有一組數列時圖例是冗贅資訊，標題已說明畫的是什麼。 */}
-      {series.length > 1 ? <Legend /> : null}
+      {/*
+        散佈圖一律顯示圖例，單一數列也不例外。折線圖／長條圖的「單一數列不顯示」
+        成立於它們的 X 軸把類別名稱寫在刻度上，Y 軸語意由該脈絡撐住；散佈圖兩軸
+        都是裸數字，沒有脈絡可倚靠，單一數列正是最需要圖例的情境。詳見 docs/adr/0006。
+      */}
+      <Legend
+        content={(props) => (
+          <DefaultLegendContent
+            {...props}
+            payload={scatterLegendPayload(chart, palette)}
+          />
+        )}
+      />
       {series.map((s) => (
         <Scatter
           key={s.key}
@@ -419,6 +619,9 @@ function ScatterChartView({ chart }: { chart: ScatterChartDefinition }) {
           name={s.label ?? s.key}
           fill={seriesColorAt(s, palette)}
           isAnimationActive={false}
+          shape={
+            extent && sizeKey ? bubbleShapeRenderer(sizeKey, extent, range) : undefined
+          }
         />
       ))}
     </ScatterChart>
