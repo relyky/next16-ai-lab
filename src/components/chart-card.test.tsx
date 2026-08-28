@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { render as baseRender, screen } from "@testing-library/react";
 
 import {
+  axisLabel,
   bubbleAxisLabels,
   bubbleRadiusAt,
   ChartCard,
@@ -1033,5 +1034,46 @@ describe("bubbleAxisLabels", () => {
       name: "profit",
       unit: undefined,
     });
+  });
+});
+
+/**
+ * 軸標題單獨測試：jsdom 下 `ResponsiveContainer` 量到寬度 0，recharts 因此
+ * 完全不渲染軸標題（刻度與資料點仍會畫），這在渲染斷言中驗不到。實際版面已在
+ * 瀏覽器中確認：兩軸標題各就各位、中文不斷行、圖例排在 X 軸標題下方。
+ */
+describe("axisLabel", () => {
+  it("未提供時不產生標題", () => {
+    expect(axisLabel(undefined, "x")).toBeUndefined();
+    expect(axisLabel(undefined, "y")).toBeUndefined();
+  });
+
+  /**
+   * `width: undefined` 是關閉 recharts 斷行的開關——`Text` 只在收到 width 時
+   * 才斷行，而 Y 軸繼承來的 width 是那條窄軸本身的寬度，中文會被折成一字一行。
+   * 這個值若被改掉，畫面會退回「一字一行」，故明確斷言。
+   */
+  it("兩軸都關閉斷行，中文標題才不會被折成一字一行", () => {
+    expect(axisLabel("產品售價", "x")?.width).toBeUndefined();
+    expect(axisLabel("月銷量", "y")?.width).toBeUndefined();
+  });
+
+  it("Y 軸標題旋轉 -90°，X 軸不旋轉", () => {
+    expect(axisLabel("月銷量", "y")).toMatchObject({
+      value: "月銷量",
+      angle: -90,
+      position: "insideLeft",
+    });
+    expect(axisLabel("產品售價", "x")).toMatchObject({
+      value: "產品售價",
+      angle: 0,
+      position: "insideBottom",
+    });
+  });
+
+  // X 軸標題靠 dy 推到刻度下方；insideBottom 本身會讓它貼在刻度上。
+  it("X 軸標題以 dy 推離刻度，Y 軸不需要", () => {
+    expect(axisLabel("產品售價", "x")).toHaveProperty("dy");
+    expect(axisLabel("月銷量", "y")).not.toHaveProperty("dy");
   });
 });

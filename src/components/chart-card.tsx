@@ -399,6 +399,55 @@ function bubbleMargin(
 }
 
 /**
+ * 軸標題：畫在該軸旁邊的名稱，`xLabel` / `yLabel` 未提供時不畫。
+ *
+ * 回傳 `label` prop 的**物件形式**而非 `<Label>` 元素：兩者看似等價，但傳元素會
+ * 讓 recharts 走「先量測標題再決定軸尺寸」的分支（`XAxis.js` 的
+ * `isValidElement(label)`），該分支在 jsdom 下量到 0 而整個不渲染——測試因此
+ * 一行都驗不到。物件形式由 recharts 自己建構 `Label`，兩種環境行為一致。
+ *
+ * **`width: undefined` 是這裡的關鍵。** recharts 的 `Label` 會把它算出的 viewBox
+ * 寬度往下傳給 `Text`，而 `Text` 只在收到 `width` 時才斷行
+ * （`Text.js`: `if ((width || scaleToFit) && ...)`）。Y 軸的 viewBox 寬度就是那條
+ * 窄軸本身的寬度，中文因此被折成一字一行——先前判定「與函式庫的斷行邏輯對抗
+ * 不划算」而退回旋轉標題，其實症結不在旋轉，而在這個繼承來的寬度。
+ *
+ * Y 軸標題旋轉 -90°，是笛卡兒圖的通用慣例——由下往上讀，不是我們的發明。
+ */
+/**
+ * 有標題時 X 軸要保留的高度（px）。
+ *
+ * 標題以 `insideBottom` 排在軸的高度內，`dy` 再把它推到刻度下方，故這個高度
+ * 必須同時容得下刻度文字與標題：刻度約 20px + 標題約 20px + 間距。
+ * recharts 的 `height="auto"` 只在標題是 React 元素時才量測（物件形式量不到），
+ * 故明給一個數字。垂直順序因此是：刻度 → 標題 → 圖例（圖例排在軸的外側）。
+ */
+const X_AXIS_HEIGHT_WITH_LABEL = 48;
+
+export function axisLabel(value: string | undefined, axis: "x" | "y") {
+  if (value === undefined) return undefined;
+
+  return {
+    value,
+    /*
+      X 軸用 insideBottom：標題留在軸自己的高度內，位置因此由 `height` 控制，
+      與圖例互不相干。`bottom`（軸外側）會把標題排進圖例佔用的帶狀區域，
+      兩者直接疊在一起——這是實機驗過的，不是推測。
+    */
+    position: axis === "x" ? ("insideBottom" as const) : ("insideLeft" as const),
+    angle: axis === "x" ? 0 : -90,
+    // insideBottom 把標題貼在軸高度的底緣、與刻度重疊；dy 把它往下推到刻度
+    // 之下。推的幅度須讓標題落在軸高度內（見 X_AXIS_HEIGHT_WITH_LABEL），
+    // 越過下緣就會撞上圖例——圖例排在軸的外側，位置不受這個 dy 影響。
+    ...(axis === "x" ? { dy: 4 } : {}),
+    // 兩軸的標題都置中於該軸；insideLeft 預設靠上，旋轉後會變成靠左。
+    textAnchor: "middle" as const,
+    width: undefined,
+    className: "fill-muted-foreground text-xs",
+  };
+}
+
+/**
  * 氣泡大小這個維度交給 `ZAxis` 的標示 props。
  *
  * `ZAxis` 在本圖表已不參與幾何——半徑由 `bubbleShapeRenderer` 決定——它留下來
@@ -421,22 +470,32 @@ export function bubbleAxisLabels(chart: ScatterChartDefinition) {
  * 在視覺上必須區分得開，否則讀者會把它讀成第四組數列。以 `currentColor` 描邊，
  * 深淺色主題下都跟著文字色走。
  *
- * 幾何數字對齊 recharts 內建圖示的 14px 見方框（`DefaultLegendContent` 的 SIZE）。
+ * 幾何數字用的是 recharts 圖例 svg 的 **viewBox** 邊長（`0 0 32 32`），而非它
+ * 顯示出來的 14px 寬度——`legendIcon` 的內容畫在 viewBox 座標裡。用 14 會讓
+ * 圖示只有四成大小且偏左，實機看起來像一個辨識不出形狀的小點。
  */
-const LEGEND_ICON_SIZE = 14;
+const LEGEND_ICON_SIZE = 32;
 
 function BubbleLegendIcon() {
   const half = LEGEND_ICON_SIZE / 2;
   return (
-    <circle
-      className="recharts-legend-icon"
-      cx={half}
-      cy={half}
-      r={half - 1}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.5}
-    />
+    <g className="recharts-legend-icon">
+      {/*
+        兩個同心圓表達的是「大小是一個會變動的維度」，單一個圓只會被讀成
+        一個普通的點。外圈虛線是那個維度的上界，實心小圓是下界。
+      */}
+      <circle
+        cx={half}
+        cy={half}
+        r={half - 2}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={3}
+        strokeDasharray="5 3.5"
+        opacity={0.8}
+      />
+      <circle cx={half} cy={half} r={5} fill="currentColor" opacity={0.8} />
+    </g>
   );
 }
 
@@ -553,7 +612,7 @@ function bubbleShapeRenderer(
  * 所有點被同一個常數尺寸驅動，而 recharts 的預設本來就是這個行為。
  */
 function ScatterChartView({ chart }: { chart: ScatterChartDefinition }) {
-  const { data, xKey, xUnit, yUnit, series, sizeKey, range } = chart;
+  const { data, xKey, xUnit, yUnit, xLabel, yLabel, series, sizeKey, range } = chart;
   const palette = useChartPalette();
 
   // 單一數列時 Y 軸只承載那一個欄位，其名稱即該軸的名稱；多數列時取其一
@@ -575,19 +634,24 @@ function ScatterChartView({ chart }: { chart: ScatterChartDefinition }) {
         不用旋轉的軸標題：recharts 的 Label 依水平可用寬度自動斷詞，
         中文旋轉後會被折成一字一行，與函式庫對抗不划算。
       */}
+      {/* height="auto" 讓 X 軸把標題的高度算進去，否則標題會疊在刻度上。 */}
+      {/* 標題畫在軸外側，需要多留高度，否則會被 SVG 下緣裁掉。 */}
       <XAxis
         type="number"
         dataKey={xKey}
         name={xKey}
         unit={xUnit}
+        height={xLabel === undefined ? undefined : X_AXIS_HEIGHT_WITH_LABEL}
+        label={axisLabel(xLabel, "x")}
         tickFormatter={formatAxisTick}
       />
-      {/* width="auto" 讓軸自行量出刻度文字所需寬度，不必猜一個魔術數字。 */}
+      {/* width="auto" 讓軸自行量出刻度文字與標題所需寬度，不必猜一個魔術數字。 */}
       <YAxis
         type="number"
         name={yAxisName}
         unit={yUnit}
         width="auto"
+        label={axisLabel(yLabel, "y")}
         tickFormatter={formatAxisTick}
       />
       {sizeKey ? (
@@ -603,7 +667,12 @@ function ScatterChartView({ chart }: { chart: ScatterChartDefinition }) {
         成立於它們的 X 軸把類別名稱寫在刻度上，Y 軸語意由該脈絡撐住；散佈圖兩軸
         都是裸數字，沒有脈絡可倚靠，單一數列正是最需要圖例的情境。詳見 docs/adr/0006。
       */}
+      {/*
+        有 X 軸標題時把圖例往下讓：標題排在軸高度的底部，圖例的預設位置會與它
+        重疊約數 px。實機量過——標題下緣 189、圖例上緣 186。
+      */}
       <Legend
+        wrapperStyle={xLabel === undefined ? undefined : { paddingTop: 12 }}
         content={(props) => (
           <DefaultLegendContent
             {...props}

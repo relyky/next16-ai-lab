@@ -206,6 +206,20 @@ export const scatterChartInputShape = {
   xUnit: z.string().min(1).optional().describe("X 軸的單位，接在刻度數值後（如「元」）"),
   yUnit: z.string().min(1).optional().describe("Y 軸的單位，接在刻度數值後（如「千件」）"),
   /**
+   * 兩個軸的標題，畫在該軸旁邊（X 軸在刻度下方，Y 軸旋轉 90° 在刻度左側）。
+   *
+   * 與 `xUnit` / `yUnit` 是兩件事：單位回答「數量級多大」，標題回答「這個軸是什麼」。
+   * 單位接在每個刻度上，無法承載「產品售價」這種完整名稱。
+   *
+   * 未提供時該軸不畫標題——退回單位加持的裸刻度，即先前的行為。
+   */
+  xLabel: z.string().min(1).optional().describe("X 軸的標題，畫在刻度下方（如「產品售價」）"),
+  yLabel: z
+    .string()
+    .min(1)
+    .optional()
+    .describe("Y 軸的標題，旋轉 90° 畫在刻度左側（如「月銷量」）"),
+  /**
    * 第三個維度：氣泡大小。散佈圖相對於其他圖表的獨特價值。
    *
    * 選填，未提供時所有點大小相同。值須非負——氣泡大小語意上是「量值」，
