@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 
+import { useAtomValue, useSetAtom } from "jotai";
 import { Bot, Hash } from "lucide-react";
 
 import { AssistantMarkdown } from "@/components/assistant-markdown";
@@ -11,23 +12,16 @@ import { ToolUsageList, type ToolUsage } from "@/components/tool-usage-list";
 import { Card } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import type { ChartDefinition } from "@/lib/charts/chart-tool";
-import type { ChatStreamEvent, Usage } from "@/lib/chat-stream";
-
-type Message = {
-  id: number;
-  role: "user" | "assistant";
-  text: string;
-  /**
-   * 中斷或失敗的提示；只有 assistant 會有。
-   * 刻意與 text 分開：串接進回覆文字的話，回覆一旦改以 markdown 渲染，
-   * 停在未閉合程式碼圍欄的輸出會把提示一起吞進程式碼區塊裡。
-   */
-  notice?: string;
-  /** 本則回應中助手產生的圖表，依產生順序排列；只有 assistant 會有。 */
-  charts?: ChartDefinition[];
-  /** 本則回應中的工具呼叫歷程，依呼叫順序排列；只有 assistant 會有。 */
-  toolUsages?: ToolUsage[];
-};
+import {
+  abortStream,
+  loadingAtom,
+  messagesAtom,
+  modelAtom,
+  sessionIdAtom,
+  submitPromptAtom,
+  usageAtom,
+} from "@/lib/chat-store";
+import type { Usage } from "@/lib/chat-stream";
 
 function UserMessage({ text }: { text: string }) {
   return (
@@ -100,8 +94,6 @@ function AssistantMessage({
   );
 }
 
-const ZERO_USAGE: Usage = { in: 0, cache_c: 0, cache_r: 0, out: 0 };
-
 /** 本輪 session 的累計用量；四項分開顯示，不做總和（理由見 Usage 型別）。 */
 function UsageLine({ usage }: { usage: Usage }) {
   const format = (n: number) => n.toLocaleString();
@@ -153,187 +145,17 @@ function SessionInfo({
 }
 
 export default function ChatPage() {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  // 模型由後端隨 session 事件帶到（設定不進 client bundle）。整輪不變，
-  // 與 sessionId 同樣不歸零：使用者看到的是同一個對話。
-  const [model, setModel] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  // 累加在前端做：後端每次請求各自呼叫 query()、維持無狀態，前端才是
-  // 「這一輪 session」的邊界持有者。null 代表尚無任何用量，不渲染該行。
-  // sessionId 變更（resume 有可能 fork）不歸零：使用者看到的是同一個對話。
-  const [usage, setUsage] = useState<Usage | null>(null);
-  // 純顯示濾鏡：關閉期間歷程照常收集，重新打開後完整可見。刻意不做持久化。
+  // 對話狀態住在 store 而非元件：切換到別的頁面再切回來，看到的是原本那段
+  // 對話。重新整理或關閉分頁才歸零——store 純粹在記憶體。
+  const messages = useAtomValue(messagesAtom);
+  const sessionId = useAtomValue(sessionIdAtom);
+  const model = useAtomValue(modelAtom);
+  const loading = useAtomValue(loadingAtom);
+  const usage = useAtomValue(usageAtom);
+  const submitPrompt = useSetAtom(submitPromptAtom);
+  // 純顯示濾鏡：關閉期間歷程照常收集，重新打開後完整可見。刻意不做持久化，
+  // 故不隨對話狀態提升到 store——它不是對話的一部分，是「我現在想不想看」。
   const [showToolUsages, setShowToolUsages] = useState(false);
-  const abortRef = useRef<AbortController | null>(null);
-
-  async function handleSubmit(text: string) {
-    const userMessageId = messages.length;
-    const assistantMessageId = userMessageId + 1;
-    setMessages((prev) => [
-      ...prev,
-      { id: userMessageId, role: "user", text },
-    ]);
-    setLoading(true);
-
-    // 助手訊息泡泡在第一個事件到達時才建立，之後就地更新。
-    // 文字與圖表各自到達，故以「要改哪些欄位」為單位更新同一則訊息。
-    const upsertReply = (patch: Partial<Omit<Message, "id" | "role">>) =>
-      setMessages((prev) =>
-        prev.some((m) => m.id === assistantMessageId)
-          ? prev.map((m) =>
-              m.id === assistantMessageId ? { ...m, ...patch } : m
-            )
-          : [
-              ...prev,
-              { id: assistantMessageId, role: "assistant", text: "", ...patch },
-            ]
-      );
-
-    let accumulated = "";
-    // 圖表事件不會重送，累積在本地才能與文字更新一起送進同一則訊息。
-    const charts: ChartDefinition[] = [];
-    // 工具事件同理；狀態轉換需要能依 id 找回既有那一列。
-    // 每次更新都換成新陣列與新物件，不改動已交給 React 的既有值。
-    let toolUsages: ToolUsage[] = [];
-    const pushToolUsages = () => upsertReply({ toolUsages });
-    /** 串流結束時把仍在進行中的工具收成終態，畫面不留下永遠轉圈的指示器。 */
-    const settlePendingTools = (message: string) => {
-      if (!toolUsages.some((u) => u.status === "running")) return;
-      toolUsages = toolUsages.map((usage) =>
-        usage.status === "running"
-          ? { ...usage, status: "error" as const, message }
-          : usage
-      );
-      pushToolUsages();
-    };
-    const controller = new AbortController();
-    abortRef.current = controller;
-
-    try {
-      const res = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: text, sessionId: sessionId ?? undefined }),
-        signal: controller.signal,
-      });
-
-      if (!res.ok) {
-        // 串流尚未開始的錯誤（如格式驗證）仍是 JSON；解析失敗不該蓋掉真正的錯誤原因。
-        const data = await res.json().catch(() => null);
-        throw new Error(data?.error ?? `請求失敗（HTTP ${res.status}）`);
-      }
-      if (!res.body) {
-        throw new Error("回應格式錯誤");
-      }
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let handledAny = false;
-
-      const handleLine = (line: string) => {
-        if (!line.trim()) return;
-
-        let event: ChatStreamEvent;
-        try {
-          event = JSON.parse(line);
-        } catch {
-          // 無法解析代表內容已經不完整，不能靜默吞掉。
-          throw new Error("回應格式錯誤");
-        }
-        if (event.type === "session") {
-          // 中斷時不會有 done，先記住 session id 才能接續下一則訊息。
-          // session 不是回覆內容，單獨收到它不足以視為有效回應。
-          setSessionId(event.sessionId);
-          setModel(event.model);
-          return;
-        }
-        handledAny = true;
-
-        if (event.type === "delta") {
-          accumulated += event.text;
-          upsertReply({ text: accumulated });
-        } else if (event.type === "chart") {
-          charts.push(event.chart);
-          upsertReply({ charts: [...charts] });
-        } else if (event.type === "tool_use") {
-          toolUsages = [
-            ...toolUsages,
-            { id: event.id, name: event.name, status: "running" },
-          ];
-          pushToolUsages();
-        } else if (event.type === "tool_done") {
-          // 沒有對應的 tool_use 就無列可更新；後端已濾掉孤兒，此處僅為防禦。
-          if (!toolUsages.some((u) => u.id === event.id)) return;
-          toolUsages = toolUsages.map((u) =>
-            u.id === event.id
-              ? {
-                  ...u,
-                  status: event.ok ? ("success" as const) : ("error" as const),
-                  message: event.ok ? undefined : event.message,
-                }
-              : u
-          );
-          pushToolUsages();
-        } else if (event.type === "usage") {
-          setUsage((prev) => {
-            const base = prev ?? ZERO_USAGE;
-            return {
-              in: base.in + event.in,
-              cache_c: base.cache_c + event.cache_c,
-              cache_r: base.cache_r + event.cache_r,
-              out: base.out + event.out,
-            };
-          });
-        } else if (event.type === "done") {
-          setSessionId(event.sessionId);
-          // 最終完整訊息為權威內容；若為空則保留已累積的增量。
-          if (event.result) {
-            accumulated = event.result;
-            upsertReply({ text: accumulated });
-          }
-        } else if (event.type === "error") {
-          throw new Error(event.error);
-        }
-      };
-
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? ""; // 最後一段可能是被切斷的半行。
-        for (const line of lines) handleLine(line);
-      }
-      handleLine(buffer + decoder.decode()); // decode() 收尾未完成的多位元組字元。
-
-      if (!handledAny) {
-        throw new Error("回應格式錯誤");
-      }
-
-      // 串流正常結束時仍可能有工具沒等到結果（工具權限被拒、turn 用盡等）。
-      // 不收尾的話，一則「成功」的回應上會留著永遠轉圈的指示器。
-      settlePendingTools("未完成");
-    } catch (err) {
-      // 使用者主動中斷不是失敗：保留已浮現的內容，只加註標示。
-      if (err instanceof DOMException && err.name === "AbortError") {
-        settlePendingTools("已中斷");
-        upsertReply({ notice: "（已中斷）" });
-        return;
-      }
-
-      const reason = err instanceof Error ? err.message : "未知錯誤";
-      settlePendingTools("未完成");
-      // 已浮現的內容原封不動保留，錯誤提示走自己的欄位。
-      upsertReply({
-        notice: `抱歉，這次回覆失敗了：${reason}。請再試一次。`,
-      });
-    } finally {
-      abortRef.current = null;
-      setLoading(false);
-    }
-  }
 
   // loading 是頁面層級的單一布林；直接傳給每一則助手訊息的話，串流期間
   // 畫面上所有歷史助手訊息都會收到「正在動畫」而重播淡入——使用者每問一個
@@ -395,8 +217,8 @@ export default function ChatPage() {
       <div className="sticky bottom-0 border-t bg-background">
         {usage && <UsageLine usage={usage} />}
         <ChatInput
-          onSubmit={handleSubmit}
-          onAbort={() => abortRef.current?.abort()}
+          onSubmit={submitPrompt}
+          onAbort={abortStream}
           disabled={loading}
         />
       </div>
