@@ -351,6 +351,25 @@ export function bubbleAreaRange(
 }
 
 /**
+ * 推出散佈圖繪圖區四周需要的邊距。
+ *
+ * 氣泡以資料點為圓心向外擴張半徑的距離，而位於值域端點的資料點就落在繪圖區邊界上，
+ * 半個圓因此會被 SVG 裁掉，最外側的刻度也會被蓋住。recharts 的預設邊距是為
+ * 線與長條設計的——它們不超出自己的資料點，散佈圖是唯一會超出的圖表類型。
+ *
+ * 未提供 `sizeKey` 時所有點是 recharts 的預設尺寸（遠小於半徑上限），不必預留。
+ * 左側不必補：Y 軸以 `width="auto"` 自行量出刻度文字所需的寬度。
+ */
+function bubbleMargin(
+  sizeKey: string | undefined,
+  range: readonly [number, number] | undefined
+) {
+  const bubbleRadius = sizeKey ? (range ?? DEFAULT_BUBBLE_RADIUS_RANGE)[1] : 0;
+
+  return { top: bubbleRadius, right: bubbleRadius, bottom: bubbleRadius, left: 0 };
+}
+
+/**
  * 散佈圖（連續數值 X 軸 × 多數列）：各數列畫成一組資料點。
  *
  * 不進笛卡兒圖的類型對照表——沒有堆疊概念，且 X 軸是連續數值軸而非等距類別軸。
@@ -363,11 +382,29 @@ function ScatterChartView({ chart }: { chart: ScatterChartDefinition }) {
   const { data, xKey, series, sizeKey, range } = chart;
   const palette = useChartPalette();
 
+  // 單一數列時 Y 軸只承載那一個欄位，其名稱即該軸的名稱；多數列時取其一
+  // 會對其餘數列說謊，此時圖例已列出各數列名稱，Y 軸不另取名。
+  const yAxisName = series.length === 1 ? (series[0].label ?? series[0].key) : undefined;
+
   return (
-    <ScatterChart>
+    <ScatterChart margin={bubbleMargin(sizeKey, range)}>
       <CartesianGrid strokeDasharray="3 3" />
-      <XAxis type="number" dataKey={xKey} name={xKey} tickFormatter={formatAxisTick} />
-      <YAxis type="number" tickFormatter={formatAxisTick} />
+      {/*
+        三個軸都給 `name`：散佈圖的軸是純數值，刻度本身不說明畫的是什麼，
+        名稱要靠 Tooltip 帶出。這也是 `sizeKey` 這個維度唯一的標示管道——
+        氣泡大小在圖上沒有圖例可依附。比照 recharts 官方 SimpleScatterChart。
+
+        不用旋轉的軸標題：recharts 的 Label 依水平可用寬度自動斷詞，
+        中文旋轉後會被折成一字一行，與函式庫對抗不划算。
+      */}
+      <XAxis
+        type="number"
+        dataKey={xKey}
+        name={xKey}
+        tickFormatter={formatAxisTick}
+      />
+      {/* width="auto" 讓軸自行量出刻度文字所需寬度，不必猜一個魔術數字。 */}
+      <YAxis type="number" name={yAxisName} width="auto" tickFormatter={formatAxisTick} />
       {sizeKey ? (
         <ZAxis type="number" dataKey={sizeKey} name={sizeKey} range={bubbleAreaRange(range)} />
       ) : null}

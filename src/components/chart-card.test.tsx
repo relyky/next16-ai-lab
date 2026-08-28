@@ -11,6 +11,7 @@ import {
 } from "./chart-card";
 import {
   DEFAULT_BUBBLE_RADIUS_RANGE,
+  MAX_BUBBLE_RADIUS,
   type ChartDefinition,
 } from "@/lib/charts/chart-tool";
 
@@ -577,6 +578,16 @@ function bubbleWidthsOf(container: HTMLElement) {
   return scatterSymbolsOf(container).map((el) => Number(el.getAttribute("width")));
 }
 
+/**
+ * 軸的 `name` 掛在該軸渲染出的線段元素上，是 Tooltip 取用名稱的來源。
+ * 散佈圖的軸是純數值，刻度不說明畫的是什麼，名稱即這個維度唯一的標示。
+ */
+function axisNameOf(container: HTMLElement, axis: "xAxis" | "yAxis") {
+  return container
+    .querySelector(`.recharts-${axis} .recharts-cartesian-axis-line`)
+    ?.getAttribute("name");
+}
+
 describe("ChartCard 散佈圖", () => {
   it("依資料筆數渲染對應數量的資料點", () => {
     const { container } = render(<ChartCard chart={scatterChart} />);
@@ -656,6 +667,42 @@ describe("ChartCard 散佈圖", () => {
     expect(screen.getByText("成本")).toBeInTheDocument();
   });
 
+  /**
+   * 兩軸都是純數值，刻度只有數字——名稱靠 Tooltip 帶出，而 Tooltip 取的是軸的
+   * `name`。這與折線圖不同：後者的 X 軸直接把類別名稱寫在刻度上，本身即說明。
+   *
+   * 不用旋轉的軸標題：recharts 的 Label 依水平可用寬度自動斷詞，中文會被折成
+   * 一字一行。比照官方 SimpleScatterChart 改以 name + Tooltip 呈現。
+   */
+  it("X 軸以 xKey 為名稱", () => {
+    const { container } = render(<ChartCard chart={scatterChart} />);
+    expect(axisNameOf(container, "xAxis")).toBe("price");
+  });
+
+  it("單一數列時 Y 軸以該數列的 label 為名稱", () => {
+    const { container } = render(<ChartCard chart={scatterChart} />);
+    expect(axisNameOf(container, "yAxis")).toBe("銷量");
+  });
+
+  // label 是選填的，沒有時回退 key——與圖例的既有規則一致。
+  it("數列未提供 label 時 Y 軸名稱回退為 key", () => {
+    const { container } = render(
+      <ChartCard chart={{ ...scatterChart, series: [{ key: "sales" }] }} />
+    );
+    expect(axisNameOf(container, "yAxis")).toBe("sales");
+  });
+
+  /**
+   * 多數列時 Y 軸承載的是多個欄位，取其中之一當名稱會對其餘數列說謊；
+   * 此時圖例已列出各數列名稱，Y 軸不另取名。
+   */
+  it("多數列時 Y 軸不取名，X 軸不受影響", () => {
+    const { container } = render(<ChartCard chart={multiSeriesScatter} />);
+
+    expect(axisNameOf(container, "yAxis")).toBeFalsy();
+    expect(axisNameOf(container, "xAxis")).toBe("price");
+  });
+
   it("渲染格線與 tooltip 容器", () => {
     const { container } = render(<ChartCard chart={scatterChart} />);
 
@@ -698,6 +745,42 @@ describe("ChartCard 散佈圖", () => {
     const maxRadius = Math.max(...bubbleWidthsOf(container)) / 2;
 
     expect(maxRadius).toBeCloseTo(20);
+  });
+
+  /**
+   * 氣泡以資料點為圓心向外擴張，最右側的點會把圓推出繪圖區右緣——
+   * recharts 的預設邊距是為線/柱設計的（它們不超出自己的資料點），對散佈圖不夠。
+   * 溢出時圓會被 SVG 裁掉半邊，X 軸最後一個刻度也會被蓋住。
+   *
+   * 上一條測試只驗半徑值本身等於 range 的最大值，驗不到它是否撞到邊界；
+   * 這條補上真正的幾何邊界檢查。
+   */
+  it("最右側的氣泡不超出繪圖區右緣", () => {
+    const { container } = render(
+      <ChartCard
+        chart={{ ...scatterChart, sizeKey: "profit", range: [4, MAX_BUBBLE_RADIUS] }}
+      />
+    );
+
+    // 繪圖區的範圍由格線的端點界定：recharts 不渲染 grid 的 rect，
+    // 但每條格線都橫跨整個繪圖區，故其 x / width 即左右邊界。
+    const gridLine = container.querySelector(".recharts-cartesian-grid-horizontal line");
+    const plotLeft = Number(gridLine?.getAttribute("x"));
+    const plotRight = plotLeft + Number(gridLine?.getAttribute("width"));
+    const surface = container.querySelector(".recharts-surface");
+    const plotBottom = Number(surface?.getAttribute("height"));
+
+    // 氣泡以資料點為圓心，四個方向都可能溢出。
+    for (const el of scatterSymbolsOf(container)) {
+      const cx = Number(el.getAttribute("cx"));
+      const cy = Number(el.getAttribute("cy"));
+      const r = Number(el.getAttribute("width")) / 2;
+
+      expect(cx - r).toBeGreaterThanOrEqual(plotLeft);
+      expect(cx + r).toBeLessThanOrEqual(plotRight);
+      expect(cy - r).toBeGreaterThanOrEqual(0);
+      expect(cy + r).toBeLessThanOrEqual(plotBottom);
+    }
   });
 
   it("未提供 range 時套用預設的最大半徑 12", () => {
