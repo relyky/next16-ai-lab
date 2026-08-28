@@ -27,7 +27,7 @@ async function connect() {
  * 兩者互補——handler 對了但沒註冊成功，只有這支測得出來。
  */
 describe("charts MCP server 經真實 MCP client 呼叫", () => {
-  it("列出五個 tool", async () => {
+  it("列出六個 tool", async () => {
     const client = await connect();
     const names = (await client.listTools()).tools.map((t) => t.name).sort();
     expect(names).toEqual([
@@ -36,6 +36,7 @@ describe("charts MCP server 經真實 MCP client 呼叫", () => {
       "line_chart",
       "pie_chart",
       "radar_chart",
+      "scatter_chart",
     ]);
   });
 
@@ -140,5 +141,59 @@ describe("charts MCP server 經真實 MCP client 呼叫", () => {
     })) as { isError?: boolean; content: { text: string }[] };
     expect(r.isError).toBe(true);
     expect(r.content.map((c) => c.text).join()).toContain("quarter");
+  });
+});
+
+/**
+ * 氣泡能力對 LLM 唯一可見的落點就是 inputSchema——只有走完整協定拿到它才驗得到。
+ * schema 少了 sizeKey 或 range，氣泡大小就等於不存在。
+ */
+describe("scatter_chart 經真實 MCP client 呼叫", () => {
+  it("inputSchema 含 sizeKey 與 range", async () => {
+    const client = await connect();
+    const found = (await client.listTools()).tools.find((t) => t.name === "scatter_chart");
+    const properties = found?.inputSchema.properties as
+      | Record<string, unknown>
+      | undefined;
+
+    expect(properties).toHaveProperty("sizeKey");
+    expect(properties).toHaveProperty("range");
+    expect(properties).toHaveProperty("xKey");
+  });
+
+  it("回傳 type 為 scatter 的圖表定義 JSON，含氣泡欄位", async () => {
+    const client = await connect();
+    const scatterArgs = {
+      data: [
+        { price: 10, sales: 400, profit: 5 },
+        { price: 20, sales: 250, profit: 50 },
+      ],
+      xKey: "price",
+      series: [{ key: "sales" }],
+      sizeKey: "profit",
+      range: [4, 20],
+    };
+    const r = (await client.callTool({
+      name: "scatter_chart",
+      arguments: scatterArgs,
+    })) as { isError?: boolean; content: { text: string }[] };
+
+    expect(r.isError).toBeFalsy();
+    expect(JSON.parse(r.content[0].text)).toEqual({ type: "scatter", ...scatterArgs });
+  });
+
+  it("錯誤情境回傳 isError", async () => {
+    const client = await connect();
+    const r = (await client.callTool({
+      name: "scatter_chart",
+      arguments: {
+        data: [{ price: 10, sales: 400 }],
+        xKey: "cost",
+        series: [{ key: "sales" }],
+      },
+    })) as { isError?: boolean; content: { text: string }[] };
+
+    expect(r.isError).toBe(true);
+    expect(r.content.map((c) => c.text).join()).toContain("cost");
   });
 });

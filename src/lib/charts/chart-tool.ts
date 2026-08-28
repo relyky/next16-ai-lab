@@ -17,6 +17,15 @@ export type CartesianChartType = "line" | "bar" | "area";
 const MAX_DATA_ROWS = 100;
 const MAX_SERIES = 6;
 
+/**
+ * 氣泡半徑上限（px）。
+ *
+ * 圖表容器高度固定、繪圖區約 180–200px，半徑 40（直徑 80px）約佔四成，
+ * 仍留得下其他點的空間。與資料列數／數列數上限是同一種東西——
+ * 避免 LLM 產生過大的值拖垮圖表可讀性。詳見 docs/adr/0005。
+ */
+const MAX_BUBBLE_RADIUS = 40;
+
 const HEX_COLOR = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 
 const seriesSchema = z.object({
@@ -149,6 +158,60 @@ export const radarChartInputShape = {
 export const radarChartInputSchema = z.strictObject(radarChartInputShape);
 
 /**
+ * 散佈圖的輸入欄位：兩個數值變數的分布，外加選填的第三個維度（氣泡大小）。
+ *
+ * 共用「數列」與「資料」兩個常數，但**不**沿用 `cartesianCommonShape`——
+ * 後者的 `xKey` 語意是「字串類別軸」，散佈圖的 X 軸是連續數值軸。
+ *
+ * 資料形狀沿用既有的「單一物件陣列」：recharts 另有「每組數列自帶資料」的餵法，
+ * 刻意不採用——那需要資料結構變成巢狀陣列，對既有的上限、擷取邏輯、配色推導
+ * 全是破壞性改動。共享頂層資料換得的好處是資料結構與其他圖表一致。
+ */
+export const scatterChartInputShape = {
+  title: z.string().min(1).optional().describe("圖表標題"),
+  data: dataSchema,
+  xKey: z
+    .string()
+    .min(1)
+    .describe("作為 X 軸（連續數值軸）的欄位名稱，須存在於 data 中且各列皆為數值"),
+  series: z
+    .array(seriesSchema)
+    .min(1)
+    .max(MAX_SERIES)
+    .describe(`要繪製的數列，其 key 為 Y 軸數值欄位，1~${MAX_SERIES} 組`),
+  /**
+   * 第三個維度：氣泡大小。散佈圖相對於其他圖表的獨特價值。
+   *
+   * 選填，未提供時所有點大小相同。值須非負——氣泡大小語意上是「量值」，
+   * 負的量值沒有意義；而 recharts 內部會把負值靜默夾成 0，畫出一個看不見的點。
+   */
+  sizeKey: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      "作為氣泡大小的欄位，須存在於 data 中且各列皆為非負數值；" +
+        "未提供時所有資料點大小相同"
+    ),
+  /**
+   * 氣泡半徑範圍（px），單位是**半徑**而非 recharts 的面積。
+   *
+   * 面積在感知上正確，但數字極不直觀；契約收半徑讓 LLM 拿到直覺會用對的單位，
+   * 易錯的換算被鎖在前端一個具名純函式裡。詳見 docs/adr/0005。
+   */
+  range: z
+    .tuple([z.number().positive(), z.number().positive()])
+    .optional()
+    .describe(
+      `氣泡的 [最小半徑, 最大半徑]（px），最大半徑上限 ${MAX_BUBBLE_RADIUS}；` +
+        "須與 sizeKey 同時提供，未提供時前端套用預設值"
+    ),
+};
+
+/** strict：誤把餅圖或雷達圖的欄位傳進來時直接被驗證擋下。 */
+export const scatterChartInputSchema = z.strictObject(scatterChartInputShape);
+
+/**
  * 各笛卡兒圖的定義：類別軸 × 多數列，以 `type` 區分。
  *
  * 同輸入端採 strict：tool 產出與前端解析走同一份定義，
@@ -202,6 +265,19 @@ export const radarChartDefinitionSchema = z.strictObject({
 export type RadarChartDefinition = z.infer<typeof radarChartDefinitionSchema>;
 
 /**
+ * 散佈圖定義：連續數值 X 軸 × 多數列，外加選填的氣泡大小維度。
+ *
+ * 不進笛卡兒圖的類型對照表——沒有堆疊概念且軸型別不同。
+ * 依 ADR 0001：一個 union 分支 + 一個渲染子元件。
+ */
+export const scatterChartDefinitionSchema = z.strictObject({
+  ...scatterChartInputShape,
+  type: z.literal("scatter"),
+});
+
+export type ScatterChartDefinition = z.infer<typeof scatterChartDefinitionSchema>;
+
+/**
  * 圖表定義 JSON：tool 的輸出，由前端 ChartCard 依 type 渲染。
  *
  * 以 `type` 為判別子的 discriminated union：各種圖表的資料形狀本質不同，
@@ -217,6 +293,7 @@ export const chartDefinitionSchema = z.discriminatedUnion("type", [
   areaChartDefinitionSchema,
   pieChartDefinitionSchema,
   radarChartDefinitionSchema,
+  scatterChartDefinitionSchema,
 ]);
 
 export type ChartDefinition = z.infer<typeof chartDefinitionSchema>;
@@ -421,4 +498,85 @@ export function buildRadarChartResult(input: unknown): ChartToolResult {
   if (missingKeys) return missingKeys;
 
   return toolSuccess({ type: "radar", ...parsed.value });
+}
+
+/**
+ * 驗證散佈圖輸入並轉成圖表定義 JSON。
+ *
+ * 座標值必須是數值，這只能在執行期逐列比對——data 欄位的型別本來就接受字串。
+ * 不擋就是靜默畫出一張空圖，而 LLM 拿不到可自行修正的訊息。
+ *
+ * 座標**允許負數**：溫差、損益本來就可以是負的。這與餅圖 `valueKey` 的非負
+ * 約束不同，因為語意不同——扇形角度不能為負，座標可以。
+ */
+export function buildScatterChartResult(input: unknown): ChartToolResult {
+  const parsed = parseOrError(scatterChartInputSchema, input);
+  if (!parsed.ok) return parsed.error;
+
+  const { data, xKey, series, sizeKey, range } = parsed.value;
+
+  const missingKeys = findMissingCategoryAndSeriesKeys(parsed.value, xKey);
+  if (missingKeys) return missingKeys;
+
+  // X 軸與各數列 key 都是數值軸，逐列檢查同一條規則。
+  for (const key of [xKey, ...series.map((s) => s.key)]) {
+    for (const [index, row] of data.entries()) {
+      const value = row[key];
+      if (typeof value !== "number" || Number.isNaN(value)) {
+        return toolError(
+          `data 第 ${index + 1} 列的 ${key} 值 ${JSON.stringify(value)} 不是數值；` +
+            "散佈圖的 X 軸與各數列欄位每一列都必須是數值"
+        );
+      }
+    }
+  }
+
+  // 傳了 range 卻沒傳 sizeKey 時回報錯誤而非靜默忽略：
+  // 靜默忽略會讓 LLM 以為自己成功調了大小。
+  if (range !== undefined && sizeKey === undefined) {
+    return toolError("range 須與 sizeKey 同時提供；只傳 range 時氣泡大小沒有可映射的欄位");
+  }
+
+  if (range !== undefined) {
+    const [min, max] = range;
+    // 傳反了會畫出「大值畫小、小值畫大」——一張看起來正常但語意相反的圖。
+    if (min >= max) {
+      return toolError(
+        `range 的最小半徑 ${min} 不小於最大半徑 ${max}；` +
+          "須為 [最小半徑, 最大半徑]，否則大值會被畫成小氣泡"
+      );
+    }
+    if (max > MAX_BUBBLE_RADIUS) {
+      return toolError(
+        `range 的最大半徑 ${max} 超過上限 ${MAX_BUBBLE_RADIUS}；` +
+          "過大的氣泡會蓋住其他資料點"
+      );
+    }
+  }
+
+  if (sizeKey !== undefined) {
+    const missingSizeKey = assertKeyExists("sizeKey", sizeKey, Object.keys(data[0]));
+    if (missingSizeKey) return missingSizeKey;
+
+    // 氣泡大小語意上是「量值」，負的量值沒有意義；而 recharts 會把負值
+    // 靜默夾成 0，畫出一個看不見的點——這種靜默失敗比畫錯更難察覺。
+    // 檢查方式比照餅圖 valueKey：逐列、錯誤訊息帶 1-based 列號。
+    for (const [index, row] of data.entries()) {
+      const value = row[sizeKey];
+      if (typeof value !== "number" || Number.isNaN(value)) {
+        return toolError(
+          `data 第 ${index + 1} 列的 ${sizeKey} 值 ${JSON.stringify(value)} 不是數值；` +
+            "散佈圖的氣泡大小欄位每一列都必須是非負數值"
+        );
+      }
+      if (value < 0) {
+        return toolError(
+          `data 第 ${index + 1} 列的 ${sizeKey} 值 ${value} 為負數；` +
+            "散佈圖的氣泡大小欄位每一列都必須是非負數值"
+        );
+      }
+    }
+  }
+
+  return toolSuccess({ type: "scatter", ...parsed.value });
 }

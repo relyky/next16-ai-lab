@@ -7,6 +7,7 @@ import {
   buildLineChartResult,
   buildPieChartResult,
   buildRadarChartResult,
+  buildScatterChartResult,
 } from "./chart-tool";
 
 const validInput = {
@@ -415,5 +416,270 @@ describe("buildRadarChartResult", () => {
 
     expect(result.isError).toBe(true);
     expect(errorTextOf(result)).toContain("color");
+  });
+});
+
+/**
+ * 散佈圖：連續數值 X 軸 × 多數列，外加選填的氣泡大小維度。
+ * 座標值必須是數值但**允許負數**——這是與餅圖非負約束區隔開來的關鍵。
+ */
+const validScatterInput = {
+  title: "價格與銷量",
+  data: [
+    { price: 10, sales: 400, profit: 5 },
+    { price: 20, sales: 250, profit: 50 },
+    { price: 30, sales: 600, profit: 0 },
+  ],
+  xKey: "price",
+  series: [{ key: "sales", label: "銷量" }],
+};
+
+describe("buildScatterChartResult", () => {
+  it("正常輸入回傳 type 為 scatter 的圖表定義 JSON", () => {
+    const result = buildScatterChartResult(validScatterInput);
+
+    expect(result.isError).toBeFalsy();
+    expect(chartOf(result)).toEqual({ type: "scatter", ...validScatterInput });
+  });
+
+  // 定義 JSON 保持稀疏：沒傳的選填欄位不該憑空出現。
+  it("未提供 sizeKey 與 range 時兩者都不出現在圖表定義中", () => {
+    const chart = chartOf(buildScatterChartResult(validScatterInput));
+
+    expect(chart).not.toHaveProperty("sizeKey");
+    expect(chart).not.toHaveProperty("range");
+  });
+
+  it("title 未提供時不出現在圖表定義中", () => {
+    const noTitle = {
+      data: validScatterInput.data,
+      xKey: validScatterInput.xKey,
+      series: validScatterInput.series,
+    };
+    expect(chartOf(buildScatterChartResult(noTitle))).not.toHaveProperty("title");
+  });
+
+  // 座標本來就可以是負的（溫差、損益）；與餅圖 valueKey 的非負約束語意不同。
+  it("負座標可正常通過", () => {
+    const data = [
+      { temp: -10, delta: -5 },
+      { temp: 20, delta: 8 },
+    ];
+    const result = buildScatterChartResult({
+      data,
+      xKey: "temp",
+      series: [{ key: "delta" }],
+    });
+
+    expect(result.isError).toBeFalsy();
+  });
+
+  // 不擋就是靜默畫出一張空圖，而 LLM 拿不到可自行修正的訊息。
+  it("某列 x 值不是數值時回傳 isError 並指出該列", () => {
+    const data = [
+      { price: 10, sales: 400 },
+      { price: "二十", sales: 250 },
+    ];
+    const result = buildScatterChartResult({ ...validScatterInput, data });
+
+    expect(result.isError).toBe(true);
+    const message = errorTextOf(result);
+    expect(message).toContain("price");
+    expect(message).toContain("2");
+  });
+
+  it("某列 y 值不是數值時回傳 isError 並指出該列", () => {
+    const data = [
+      { price: 10, sales: 400 },
+      { price: 20, sales: 250 },
+      { price: 30, sales: "六百" },
+    ];
+    const result = buildScatterChartResult({ ...validScatterInput, data });
+
+    expect(result.isError).toBe(true);
+    const message = errorTextOf(result);
+    expect(message).toContain("sales");
+    expect(message).toContain("3");
+  });
+
+  it("xKey 不存在於 data 時回傳 isError 並附上可用欄位", () => {
+    const result = buildScatterChartResult({ ...validScatterInput, xKey: "cost" });
+
+    expect(result.isError).toBe(true);
+    const message = errorTextOf(result);
+    expect(message).toContain("cost");
+    expect(message).toContain("price");
+  });
+
+  it("series 的欄位不存在於 data 時回傳 isError 並附上可用欄位", () => {
+    const result = buildScatterChartResult({
+      ...validScatterInput,
+      series: [{ key: "volume" }],
+    });
+
+    expect(result.isError).toBe(true);
+    const message = errorTextOf(result);
+    expect(message).toContain("volume");
+    expect(message).toContain("price");
+  });
+
+  // 沿用既有的共通失敗案例行為。
+  it("data 為空陣列時回傳 isError", () => {
+    expect(buildScatterChartResult({ ...validScatterInput, data: [] }).isError).toBe(true);
+  });
+
+  it("data 超過 100 筆時回傳驗證錯誤", () => {
+    const data = Array.from({ length: 101 }, (_, i) => ({ price: i, sales: i * 2 }));
+    const result = buildScatterChartResult({ ...validScatterInput, data });
+
+    expect(result.isError).toBe(true);
+    expect(errorTextOf(result)).toContain("data");
+  });
+
+  it("series 超過 6 組時回傳驗證錯誤", () => {
+    const series = Array.from({ length: 7 }, (_, i) => ({ key: `s${i}` }));
+    const result = buildScatterChartResult({ ...validScatterInput, series });
+
+    expect(result.isError).toBe(true);
+    expect(errorTextOf(result)).toContain("series");
+  });
+
+  it("series 為空陣列時回傳驗證錯誤", () => {
+    expect(buildScatterChartResult({ ...validScatterInput, series: [] }).isError).toBe(true);
+  });
+
+  it("series[].color 非 hex 格式時回傳驗證錯誤", () => {
+    const result = buildScatterChartResult({
+      ...validScatterInput,
+      series: [{ key: "sales", color: "red" }],
+    });
+
+    expect(result.isError).toBe(true);
+    expect(errorTextOf(result)).toContain("color");
+  });
+
+  it("傳入未知欄位時回傳 isError 並指出該欄位", () => {
+    const result = buildScatterChartResult({ ...validScatterInput, bogus: true });
+
+    expect(result.isError).toBe(true);
+    expect(errorTextOf(result)).toContain("bogus");
+  });
+});
+
+/**
+ * 氣泡大小：散佈圖相對於其他圖表的獨特價值。
+ * 契約的單位是**半徑**而非 recharts 的面積，詳見 docs/adr/0005。
+ */
+describe("buildScatterChartResult 的氣泡大小", () => {
+  it("提供 sizeKey 與 range 時如實帶入圖表定義", () => {
+    const input = { ...validScatterInput, sizeKey: "profit", range: [4, 20] };
+    const result = buildScatterChartResult(input);
+
+    expect(result.isError).toBeFalsy();
+    expect(chartOf(result)).toEqual({ type: "scatter", ...input });
+  });
+
+  // range 選填：sizeKey 本身已是選填，若 range 必填會出現
+  // 「有 range 沒 sizeKey」這種無意義的必填組合。
+  it("只提供 sizeKey 時通過，range 不出現在定義中", () => {
+    const result = buildScatterChartResult({ ...validScatterInput, sizeKey: "profit" });
+
+    expect(result.isError).toBeFalsy();
+    expect(chartOf(result)).not.toHaveProperty("range");
+  });
+
+  it("sizeKey 不存在於 data 時回傳 isError 並附上可用欄位", () => {
+    const result = buildScatterChartResult({ ...validScatterInput, sizeKey: "margin" });
+
+    expect(result.isError).toBe(true);
+    const message = errorTextOf(result);
+    expect(message).toContain("sizeKey");
+    expect(message).toContain("margin");
+    expect(message).toContain("price");
+  });
+
+  // recharts 會把負值靜默夾成 0，畫出一個看不見的點——
+  // 這種靜默失敗比畫錯更難察覺。檢查方式比照餅圖 valueKey。
+  it("sizeKey 某列為負數時回傳 isError 並指出該列（1-based）", () => {
+    const data = [
+      { price: 10, sales: 400, profit: 5 },
+      { price: 20, sales: 250, profit: -50 },
+    ];
+    const result = buildScatterChartResult({ ...validScatterInput, data, sizeKey: "profit" });
+
+    expect(result.isError).toBe(true);
+    const message = errorTextOf(result);
+    expect(message).toContain("profit");
+    expect(message).toContain("2");
+  });
+
+  it("sizeKey 某列非數值時回傳 isError 並指出該列", () => {
+    const data = [
+      { price: 10, sales: 400, profit: 5 },
+      { price: 20, sales: 250, profit: "高" },
+    ];
+    const result = buildScatterChartResult({ ...validScatterInput, data, sizeKey: "profit" });
+
+    expect(result.isError).toBe(true);
+    expect(errorTextOf(result)).toContain("profit");
+  });
+
+  it("sizeKey 為零時視為合法值", () => {
+    const result = buildScatterChartResult({ ...validScatterInput, sizeKey: "profit" });
+    expect(result.isError).toBeFalsy();
+  });
+
+  // 傳反了會畫出「大值畫小、小值畫大」——一張看起來完全正常但語意相反的圖。
+  it("range 最小值不小於最大值時回傳 isError", () => {
+    const result = buildScatterChartResult({
+      ...validScatterInput,
+      sizeKey: "profit",
+      range: [20, 4],
+    });
+
+    expect(result.isError).toBe(true);
+    expect(errorTextOf(result)).toContain("range");
+  });
+
+  it("range 最小值等於最大值時回傳 isError", () => {
+    const result = buildScatterChartResult({
+      ...validScatterInput,
+      sizeKey: "profit",
+      range: [10, 10],
+    });
+
+    expect(result.isError).toBe(true);
+  });
+
+  // 半徑上限 40：過大的氣泡會蓋住其他資料點。
+  it("range 最大半徑超過上限時回傳 isError", () => {
+    const result = buildScatterChartResult({
+      ...validScatterInput,
+      sizeKey: "profit",
+      range: [4, 41],
+    });
+
+    expect(result.isError).toBe(true);
+    expect(errorTextOf(result)).toContain("40");
+  });
+
+  it("range 最大半徑剛好等於上限時通過", () => {
+    const result = buildScatterChartResult({
+      ...validScatterInput,
+      sizeKey: "profit",
+      range: [4, 40],
+    });
+
+    expect(result.isError).toBeFalsy();
+  });
+
+  // 靜默忽略會讓 LLM 以為自己成功調了大小。
+  it("傳了 range 卻沒傳 sizeKey 時回傳 isError", () => {
+    const result = buildScatterChartResult({ ...validScatterInput, range: [4, 12] });
+
+    expect(result.isError).toBe(true);
+    const message = errorTextOf(result);
+    expect(message).toContain("range");
+    expect(message).toContain("sizeKey");
   });
 });

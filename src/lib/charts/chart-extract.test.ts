@@ -169,3 +169,21 @@ describe("createChartExtractor 雷達圖", () => {
     expect(extract(toolResult("t-1", JSON.stringify(radar)))).toEqual([radar]);
   });
 });
+
+// 圖表定義的擷取以 schema 驗證為輔；新增的 union 分支須確實被那份 schema 認得。
+describe("createChartExtractor 散佈圖", () => {
+  it("取出 scatter tool 回傳的圖表定義，含氣泡欄位", () => {
+    const extract = createChartExtractor();
+    const scatter = {
+      type: "scatter" as const,
+      data: [{ price: 10, sales: 400, profit: 5 }],
+      xKey: "price",
+      series: [{ key: "sales" }],
+      sizeKey: "profit",
+      range: [4, 20] as [number, number],
+    };
+
+    extract(toolUse("t-1", "mcp__charts__scatter_chart"));
+    expect(extract(toolResult("t-1", JSON.stringify(scatter)))).toEqual([scatter]);
+  });
+});

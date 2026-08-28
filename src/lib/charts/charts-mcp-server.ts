@@ -19,9 +19,11 @@ import {
   buildLineChartResult,
   buildPieChartResult,
   buildRadarChartResult,
+  buildScatterChartResult,
   lineChartInputShape,
   pieChartInputShape,
   radarChartInputShape,
+  scatterChartInputShape,
 } from "./chart-tool";
 
 /** 三個笛卡兒圖 tool 共通的用法說明；各自的差異寫在自己的描述裡。 */
@@ -85,6 +87,28 @@ export const radarChartTool = tool(
   async (args) => buildRadarChartResult(args)
 );
 
+/**
+ * 散佈圖：兩個數值變數的分布與相關性，外加選填的氣泡大小維度。
+ *
+ * `sizeKey` 與 `range` 的用法必須寫進**描述**而不是只寫在欄位的 describe 裡：
+ * 選填欄位的說明只存在於巢狀 JSON Schema 的 property description 中，LLM 未必
+ * 讀得到（ADR 0003 已記錄此問題）。氣泡大小是本功能最有價值的部分，
+ * 若 LLM 從不主動使用，等於沒做。
+ */
+export const scatterChartTool = tool(
+  "scatter_chart",
+  "把查到的資料轉成散佈圖定義，適合觀察兩個數值變數之間的分布與相關性。" +
+    "xKey 指定作為 X 軸的欄位，series 指定作為 Y 軸的數值欄位；" +
+    "X 軸與各數列 key 都必須是數值欄位（可為負數），非數值會被拒絕。" +
+    "配色以每組數列一色：可於 series[].color 傳 hex 色碼指定；未提供時前端套用預設配色。" +
+    "要在同一張圖上多讀一個維度時，用選填的 sizeKey 指向一個非負數值欄位，" +
+    "各點會依該值畫成大小不同的氣泡；未提供 sizeKey 時所有點大小相同。" +
+    "選填的 range 是氣泡的 [最小半徑, 最大半徑]（單位 px，最大半徑上限 40），" +
+    "未提供時前端套用預設 [4, 12]；range 須與 sizeKey 同時提供。",
+  scatterChartInputShape,
+  async (args) => buildScatterChartResult(args)
+);
+
 /** 匯出成陣列，讓「有哪些 tool」在測試與註冊處是同一份來源。 */
 export const chartTools = [
   lineChartTool,
@@ -92,6 +116,7 @@ export const chartTools = [
   areaChartTool,
   pieChartTool,
   radarChartTool,
+  scatterChartTool,
 ];
 
 /** 掛進 chat route 的 `mcpServers.charts`；工具全名為 `mcp__charts__*`。 */

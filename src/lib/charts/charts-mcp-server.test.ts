@@ -9,6 +9,7 @@ import {
   lineChartTool,
   pieChartTool,
   radarChartTool,
+  scatterChartTool,
 } from "./charts-mcp-server";
 
 const validArgs = {
@@ -47,6 +48,14 @@ function asPieToolArgs(args: Record<string, unknown>) {
   return args as Parameters<typeof pieChartTool.handler>[0];
 }
 
+/**
+ * 散佈圖版的同款 helper：`sizeKey` / `range` 選填，但 handler 的參數型別
+ * 把選填欄位表述為「必填但可為 undefined」，實際呼叫時仍可省略。
+ */
+function asScatterToolArgs(args: Record<string, unknown>) {
+  return args as unknown as Parameters<typeof scatterChartTool.handler>[0];
+}
+
 /** 三個 tool 的對照表：type、tool 名稱、tool 實例，三處測試共用。 */
 const CHART_TOOLS = [
   ["line", "line_chart", lineChartTool],
@@ -67,13 +76,14 @@ describe("charts MCP server", () => {
     expect(chartTool.description).toBeTruthy();
   });
 
-  it("五個 tool 全數註冊到 server", () => {
+  it("六個 tool 全數註冊到 server", () => {
     expect(chartTools).toEqual([
       lineChartTool,
       barChartTool,
       areaChartTool,
       pieChartTool,
       radarChartTool,
+      scatterChartTool,
     ]);
   });
 
@@ -169,4 +179,52 @@ describe("charts MCP server", () => {
       expect(textOf(result)).toContain("quarter");
     }
   );
+});
+
+/**
+ * 散佈圖：氣泡大小是本功能最有價值的部分，而選填欄位的說明只存在於巢狀
+ * JSON Schema 的 property description 裡（ADR 0003）。故 sizeKey 與 range
+ * 的用法必須寫進 tool 的**描述**，否則 LLM 從不主動使用，等於沒做。
+ */
+describe("scatter tool", () => {
+  it("註冊 scatter 的 tool 並附上描述", () => {
+    expect(scatterChartTool.name).toBe("scatter_chart");
+    expect(scatterChartTool.description).toBeTruthy();
+  });
+
+  it("描述說明適用情境、數值欄位要求與配色方式", () => {
+    // 適用情境：兩個數值變數的分布與相關性。
+    expect(scatterChartTool.description).toContain("相關性");
+    // X 軸與各數列 key 都必須是數值欄位。
+    expect(scatterChartTool.description).toContain("數值欄位");
+    expect(scatterChartTool.description).toContain("series[].color");
+    expect(scatterChartTool.description).toContain("預設配色");
+  });
+
+  it("描述明文寫出 sizeKey 為選填、非負、未提供時所有點大小相同", () => {
+    expect(scatterChartTool.description).toContain("sizeKey");
+    expect(scatterChartTool.description).toContain("非負");
+    expect(scatterChartTool.description).toContain("所有點大小相同");
+  });
+
+  it("描述明文寫出 range 為半徑範圍及未提供時的預設值", () => {
+    expect(scatterChartTool.description).toContain("半徑");
+    expect(scatterChartTool.description).toContain("[4, 12]");
+  });
+
+  it("呼叫 scatter_chart tool 回傳 type 為 scatter 的圖表定義 JSON", async () => {
+    const scatterArgs = {
+      title: "價格與銷量",
+      data: [
+        { price: 10, sales: 400 },
+        { price: 20, sales: 250 },
+      ],
+      xKey: "price",
+      series: [{ key: "sales" }],
+    };
+    const result = await scatterChartTool.handler(asScatterToolArgs(scatterArgs), {});
+
+    expect(result.isError).toBeFalsy();
+    expect(JSON.parse(textOf(result))).toEqual({ type: "scatter", ...scatterArgs });
+  });
 });

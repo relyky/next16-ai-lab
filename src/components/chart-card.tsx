@@ -26,9 +26,12 @@ import {
   Radar,
   RadarChart,
   ResponsiveContainer,
+  Scatter,
+  ScatterChart,
   Tooltip,
   XAxis,
   YAxis,
+  ZAxis,
 } from "recharts";
 
 import {
@@ -42,6 +45,7 @@ import type {
   ChartDefinition,
   PieChartDefinition,
   RadarChartDefinition,
+  ScatterChartDefinition,
 } from "@/lib/charts/chart-tool";
 
 /**
@@ -328,6 +332,68 @@ function RadarChartView({ chart }: { chart: RadarChartDefinition }) {
   );
 }
 
+/**
+ * 氣泡半徑的預設範圍（px）；換算後與 recharts 自身的預設同一量級。
+ *
+ * `range` 選填，未提供時套用此值。詳見 docs/adr/0005。
+ */
+export const DEFAULT_BUBBLE_RADIUS_RANGE: [number, number] = [4, 12];
+
+/**
+ * 半徑範圍（px）換算成 recharts `ZAxis.range` 需要的面積範圍。
+ *
+ * recharts 的 `ZAxis.range` 單位是面積（內部以 `radius = sqrt(size / π)` 反推半徑）。
+ * 面積在感知上正確——人眼比較圓的大小時比較的是面積——但數字極不直觀
+ * （`[64, 400]` 換算成半徑是 4.5px 到 11.3px）。因此契約收半徑，
+ * 易錯的換算鎖在這一個具名純函式裡。詳見 docs/adr/0005。
+ *
+ * 匯出並單獨測試：jsdom 不產生 SVG 幾何，此換算在渲染斷言中驗不到。
+ */
+export function bubbleAreaRange(
+  radiusRange: readonly [number, number] = DEFAULT_BUBBLE_RADIUS_RANGE
+): [number, number] {
+  const [min, max] = radiusRange;
+  return [Math.PI * min * min, Math.PI * max * max];
+}
+
+/**
+ * 散佈圖（連續數值 X 軸 × 多數列）：各數列畫成一組資料點。
+ *
+ * 不進笛卡兒圖的類型對照表——沒有堆疊概念，且 X 軸是連續數值軸而非等距類別軸。
+ * 兩個軸都套用大數值縮寫格式化函式：兩軸都是數值軸。
+ *
+ * `ZAxis` 只在提供 `sizeKey` 時渲染——沒有第三個維度時多掛一個軸只會讓
+ * 所有點被同一個常數尺寸驅動，而 recharts 的預設本來就是這個行為。
+ */
+function ScatterChartView({ chart }: { chart: ScatterChartDefinition }) {
+  const { data, xKey, series, sizeKey, range } = chart;
+  const palette = useChartPalette();
+
+  return (
+    <ScatterChart>
+      <CartesianGrid strokeDasharray="3 3" />
+      <XAxis type="number" dataKey={xKey} name={xKey} tickFormatter={formatAxisTick} />
+      <YAxis type="number" tickFormatter={formatAxisTick} />
+      {sizeKey ? (
+        <ZAxis type="number" dataKey={sizeKey} name={sizeKey} range={bubbleAreaRange(range)} />
+      ) : null}
+      <Tooltip />
+      {/* 只有一組數列時圖例是冗贅資訊，標題已說明畫的是什麼。 */}
+      {series.length > 1 ? <Legend /> : null}
+      {series.map((s) => (
+        <Scatter
+          key={s.key}
+          data={data}
+          dataKey={s.key}
+          name={s.label ?? s.key}
+          fill={seriesColorAt(s, palette)}
+          isAnimationActive={false}
+        />
+      ))}
+    </ScatterChart>
+  );
+}
+
 /** 依 `type` 分派到各圖表子元件；此處同時完成 union 的型別收窄。 */
 function ChartBody({ chart }: { chart: ChartDefinition }) {
   switch (chart.type) {
@@ -339,6 +405,8 @@ function ChartBody({ chart }: { chart: ChartDefinition }) {
       return <PieChartView chart={chart} />;
     case "radar":
       return <RadarChartView chart={chart} />;
+    case "scatter":
+      return <ScatterChartView chart={chart} />;
   }
 }
 

@@ -2,8 +2,10 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { render as baseRender, screen } from "@testing-library/react";
 
 import {
+  bubbleAreaRange,
   ChartCard,
   ChartPaletteProvider,
+  DEFAULT_BUBBLE_RADIUS_RANGE,
   formatAxisTick,
   renderSectorLabel,
   seriesColorAt,
@@ -536,5 +538,205 @@ describe("ChartCard 雷達圖", () => {
   it("顯示圖表標題", () => {
     render(<ChartCard chart={radarChart} />);
     expect(screen.getByText("分店評比")).toBeInTheDocument();
+  });
+});
+
+const scatterChart: ChartDefinition = {
+  type: "scatter",
+  title: "價格與銷量",
+  data: [
+    { price: 10, sales: 4_000_000, profit: 5 },
+    { price: 20, sales: 2_000_000, profit: 50 },
+    { price: 30, sales: 6_000_000, profit: 100 },
+  ],
+  xKey: "price",
+  series: [{ key: "sales", label: "銷量" }],
+};
+
+const multiSeriesScatter: ChartDefinition = {
+  ...scatterChart,
+  data: [
+    { price: 10, sales: 400, cost: 120 },
+    { price: 20, sales: 250, cost: 90 },
+  ],
+  series: [
+    { key: "sales", label: "銷量" },
+    { key: "cost", label: "成本" },
+  ],
+};
+
+/** 各資料點的實際著色與幾何都掛在 symbol path 上。 */
+function scatterSymbolsOf(container: HTMLElement) {
+  return Array.from(container.querySelectorAll("path.recharts-symbols"));
+}
+
+/** symbol 的寬度即該氣泡的直徑；jsdom 下 recharts 仍會算出這個屬性。 */
+function bubbleWidthsOf(container: HTMLElement) {
+  return scatterSymbolsOf(container).map((el) => Number(el.getAttribute("width")));
+}
+
+describe("ChartCard 散佈圖", () => {
+  it("依資料筆數渲染對應數量的資料點", () => {
+    const { container } = render(<ChartCard chart={scatterChart} />);
+    expect(scatterSymbolsOf(container)).toHaveLength(3);
+  });
+
+  /**
+   * X 軸為連續數值軸而非等距類別軸：刻度不會是 data 裡的三個原始值，
+   * 而是由值域推導出的等距刻度。這是散佈圖與笛卡兒圖最關鍵的差異。
+   */
+  it("X 軸為連續數值軸而非等距類別軸", () => {
+    const { container } = render(<ChartCard chart={scatterChart} />);
+    const xTicks = Array.from(
+      container.querySelectorAll(".recharts-cartesian-axis-tick-value")
+    )
+      .filter((el) => el.getAttribute("text-anchor") === "middle")
+      .map((el) => el.textContent);
+
+    // 類別軸會原樣列出 10 / 20 / 30 三個值；數值軸則從 0 起算等距刻度。
+    expect(xTicks).not.toEqual(["10", "20", "30"]);
+    expect(xTicks[0]).toBe("0");
+  });
+
+  // 兩個軸都是數值軸，都套用大數值縮寫。
+  it("兩個座標軸都套用大數值縮寫", () => {
+    const { container } = render(
+      <ChartCard
+        chart={{
+          ...scatterChart,
+          data: [
+            { price: 1_000_000, sales: 4_000_000 },
+            { price: 4_000_000, sales: 6_000_000 },
+          ],
+        }}
+      />
+    );
+    const ticks = Array.from(
+      container.querySelectorAll(".recharts-cartesian-axis-tick-value")
+    );
+    const xTicks = ticks
+      .filter((el) => el.getAttribute("text-anchor") === "middle")
+      .map((el) => el.textContent);
+    const yTicks = ticks
+      .filter((el) => el.getAttribute("text-anchor") === "end")
+      .map((el) => el.textContent);
+
+    expect(xTicks.some((t) => t?.endsWith("M"))).toBe(true);
+    expect(yTicks.some((t) => t?.endsWith("M"))).toBe(true);
+  });
+
+  it("多組數列各自套用不同顏色", () => {
+    const { container } = render(
+      <ChartCard
+        chart={{
+          ...multiSeriesScatter,
+          series: [{ key: "sales" }, { key: "cost", color: "#ff0000" }],
+        }}
+      />
+    );
+    const fills = new Set(
+      scatterSymbolsOf(container).map((el) => el.getAttribute("fill"))
+    );
+
+    expect([...fills].sort()).toEqual(["#ff0000", "var(--chart-1)"]);
+  });
+
+  it("單一數列時不渲染 Legend", () => {
+    const { container } = render(<ChartCard chart={scatterChart} />);
+    expect(container.querySelector(".recharts-legend-wrapper")).toBeNull();
+  });
+
+  it("多數列時渲染 Legend 並列出各數列 label", () => {
+    const { container } = render(<ChartCard chart={multiSeriesScatter} />);
+
+    expect(container.querySelector(".recharts-legend-wrapper")).not.toBeNull();
+    expect(screen.getByText("銷量")).toBeInTheDocument();
+    expect(screen.getByText("成本")).toBeInTheDocument();
+  });
+
+  it("渲染格線與 tooltip 容器", () => {
+    const { container } = render(<ChartCard chart={scatterChart} />);
+
+    expect(container.querySelector(".recharts-cartesian-grid")).not.toBeNull();
+    expect(container.querySelector(".recharts-tooltip-wrapper")).not.toBeNull();
+  });
+
+  it("顯示圖表標題", () => {
+    render(<ChartCard chart={scatterChart} />);
+    expect(screen.getByText("價格與銷量")).toBeInTheDocument();
+  });
+
+  // 未提供 sizeKey 時所有點大小相同——這是「沒有第三個維度」的視覺表達。
+  it("未提供 sizeKey 時所有資料點大小相同", () => {
+    const { container } = render(<ChartCard chart={scatterChart} />);
+    const widths = bubbleWidthsOf(container);
+
+    expect(widths.length).toBe(3);
+    expect(new Set(widths).size).toBe(1);
+  });
+
+  it("提供 sizeKey 時氣泡大小有可見差異", () => {
+    const { container } = render(
+      <ChartCard chart={{ ...scatterChart, sizeKey: "profit" }} />
+    );
+    const widths = bubbleWidthsOf(container);
+
+    expect(widths.length).toBe(3);
+    expect(new Set(widths).size).toBeGreaterThan(1);
+  });
+
+  /**
+   * 契約的單位是半徑：range 的最大半徑須真的等於畫出來的最大氣泡半徑，
+   * 否則半徑→面積的換算就接錯了。symbol 的 width 即直徑。
+   */
+  it("最大氣泡的半徑等於 range 的最大值，不溢出繪圖區", () => {
+    const { container } = render(
+      <ChartCard chart={{ ...scatterChart, sizeKey: "profit", range: [4, 20] }} />
+    );
+    const maxRadius = Math.max(...bubbleWidthsOf(container)) / 2;
+
+    expect(maxRadius).toBeCloseTo(20);
+  });
+
+  it("未提供 range 時套用預設的最大半徑 12", () => {
+    const { container } = render(
+      <ChartCard chart={{ ...scatterChart, sizeKey: "profit" }} />
+    );
+    const maxRadius = Math.max(...bubbleWidthsOf(container)) / 2;
+
+    expect(maxRadius).toBeCloseTo(DEFAULT_BUBBLE_RADIUS_RANGE[1]);
+  });
+});
+
+/**
+ * 半徑→面積的換算單獨測試：jsdom 不產生 SVG 幾何，此換算在渲染斷言中驗不到。
+ * 平方與圓周率是兩個易錯點——寫成 `2 * π * r` 或漏掉平方都會過不了。
+ */
+describe("bubbleAreaRange", () => {
+  it("依 πr² 換算自訂的半徑範圍", () => {
+    expect(bubbleAreaRange([4, 20])).toEqual([Math.PI * 16, Math.PI * 400]);
+  });
+
+  it("未提供時套用預設的 [4, 12]", () => {
+    expect(bubbleAreaRange()).toEqual([Math.PI * 16, Math.PI * 144]);
+    expect(bubbleAreaRange()).toEqual(bubbleAreaRange(DEFAULT_BUBBLE_RADIUS_RANGE));
+  });
+
+  // 面積與半徑是平方關係：半徑翻倍，面積變四倍。寫成線性換算會過不了。
+  it("半徑翻倍時面積變為四倍", () => {
+    const [, small] = bubbleAreaRange([1, 5]);
+    const [, large] = bubbleAreaRange([1, 10]);
+
+    expect(large / small).toBeCloseTo(4);
+  });
+
+  // 具體數值：ADR 中舉的 [64, 400] 面積對應約 4.5px 到 11.3px 半徑，
+  // 反向驗證換算方向沒有寫反。
+  it("半徑 4.5 與 11.3 換算出的面積約為 64 與 400", () => {
+    const [min, max] = bubbleAreaRange([4.5, 11.3]);
+
+    // ADR 中的 4.5 / 11.3 本身是四捨五入後的半徑，故取整數位級距的容差。
+    expect(min).toBeCloseTo(64, -1);
+    expect(max).toBeCloseTo(400, -1);
   });
 });
