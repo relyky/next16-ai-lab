@@ -7,6 +7,7 @@
  * 分派同時是型別收窄點——圖表定義是 discriminated union，
  * 收窄後子元件才拿得到自己那一種圖表的精確欄位。
  */
+import { createContext, useContext, useMemo } from "react";
 import {
   Area,
   AreaChart,
@@ -25,6 +26,11 @@ import {
   YAxis,
 } from "recharts";
 
+import {
+  buildChartPalette,
+  paletteColorFor,
+  type ChartPalette,
+} from "@/lib/charts/chart-palette";
 import type {
   CartesianChartDefinition,
   CartesianChartType,
@@ -32,26 +38,46 @@ import type {
   PieChartDefinition,
 } from "@/lib/charts/chart-tool";
 
-/** 未指定顏色時的預設配色，沿用專案既有的 shadcn 圖表 CSS 變數。 */
-const FALLBACK_COLORS = [
-  "var(--chart-1)",
-  "var(--chart-2)",
-  "var(--chart-3)",
-  "var(--chart-4)",
-  "var(--chart-5)",
-  "var(--chart-6)",
-];
+/**
+ * 名稱 → 色序對照表的供應點。
+ *
+ * 預設為空 Map：單獨渲染一張圖（如測試、未來的其他頁面）不會壞掉，
+ * 只是每個類別都回退到第一個顏色。
+ */
+const ChartPaletteContext = createContext<ChartPalette>(new Map());
 
-/** 依序循環套用預設配色。 */
-function fallbackColorAt(index: number) {
-  return FALLBACK_COLORS[index % FALLBACK_COLORS.length];
+/**
+ * 供應對照表給底下所有圖表卡片。
+ *
+ * `charts` 須依實際產生順序攤平——首次出現順序即色序，順序變了顏色就變了。
+ */
+export function ChartPaletteProvider({
+  charts,
+  children,
+}: {
+  charts: readonly ChartDefinition[];
+  children: React.ReactNode;
+}) {
+  const palette = useMemo(() => buildChartPalette(charts), [charts]);
+  return (
+    <ChartPaletteContext value={palette}>{children}</ChartPaletteContext>
+  );
+}
+
+export function useChartPalette() {
+  return useContext(ChartPaletteContext);
 }
 
 type ChartSeries = CartesianChartDefinition["series"][number];
 
-/** 數列顏色：呼叫端指定的優先，否則依序循環套用預設配色。 */
-export function seriesColorAt(series: ChartSeries, index: number) {
-  return series.color ?? fallbackColorAt(index);
+/**
+ * 數列顏色：呼叫端指定的優先，否則依名稱查對照表。
+ *
+ * 查表的鍵用 `label ?? key`——與圖例顯示的文字同一個來源，
+ * 「同一份數據延用同一顏色」的「同一份」才是讀者眼中看到的那個名稱。
+ */
+export function seriesColorAt(series: ChartSeries, palette: ChartPalette) {
+  return series.color ?? paletteColorFor(palette, series.label ?? series.key);
 }
 
 /**
@@ -142,6 +168,7 @@ export function formatAxisTick(value: number) {
 function CartesianChartView({ chart }: { chart: CartesianChartDefinition }) {
   const { type, data, xKey, series } = chart;
   const { Container, Series, defaultStacked, seriesProps } = CARTESIAN_KINDS[type];
+  const palette = useChartPalette();
 
   // 定義 JSON 是稀疏的：LLM 沒傳 stacked 時回退到該圖表類型的預設。
   // stackId 的注入邏輯三種圖完全相同，不屬於各類型的差異，故不進對照表。
@@ -160,13 +187,13 @@ function CartesianChartView({ chart }: { chart: CartesianChartDefinition }) {
       <Tooltip />
       {/* 只有一組數列時圖例是冗贅資訊，標題已說明畫的是什麼。 */}
       {series.length > 1 ? <Legend /> : null}
-      {series.map((s, index) => (
+      {series.map((s) => (
         <Series
           key={s.key}
           dataKey={s.key}
           name={s.label ?? s.key}
           {...stackProps}
-          {...seriesProps(seriesColorAt(s, index))}
+          {...seriesProps(seriesColorAt(s, palette))}
         />
       ))}
     </Container>
@@ -174,18 +201,46 @@ function CartesianChartView({ chart }: { chart: CartesianChartDefinition }) {
 }
 
 /**
- * 餅圖的扇形顏色：`colorKey` 指到的欄位有值時勝出，否則回退預設配色。
+ * 餅圖的扇形顏色：`colorKey` 指到的欄位有值時勝出，否則依名稱查對照表。
  *
- * 回退取的是該扇形自己的序號而非「第幾個未指定」，
- * 混合案例中每個扇形的預設色才不會隨前面幾列有沒有指定色而漂移。
+ * 回退依扇形自己的類別名稱而非序號，同一個類別在別張圖裡才是同一個顏色；
+ * 混合案例中每個扇形的預設色也不會隨前面幾列有沒有指定色而漂移。
  */
-function sectorColorAt(
+export function sectorColorAt(
   row: Record<string, string | number>,
-  index: number,
-  colorKey: string | undefined
+  nameKey: string,
+  colorKey: string | undefined,
+  palette: ChartPalette
 ) {
   const color = colorKey === undefined ? undefined : row[colorKey];
-  return typeof color === "string" ? color : fallbackColorAt(index);
+  if (typeof color === "string") return color;
+  return paletteColorFor(palette, String(row[nameKey]));
+}
+
+/**
+ * 扇形標籤：類別名稱 + 佔比百分比。
+ *
+ * 扇形角度雖然就是佔比，但「這塊看起來比那塊大一點」不等於讀得出數字——
+ * 餅圖的用途正是讀比例，故把百分比直接畫在圖上，而不是只藏在 hover 的
+ * tooltip 裡（截圖、列印、觸控裝置都沒有 hover）。
+ *
+ * 百分比由 recharts 提供的 `percent`（0~1）換算，取一位小數：整數會讓
+ * 33.3% 與 33.4% 併成同一個數字，看起來像資料有誤。
+ *
+ * 過小的扇形不標：標籤字寬固定，扇形太窄時文字會互相疊在一起，
+ * 反而比不標更難讀。被略過的值仍可由 tooltip 讀到。
+ */
+const MIN_LABELED_PERCENT = 0.03;
+
+export function renderSectorLabel({
+  name,
+  percent,
+}: {
+  name?: string | number;
+  percent?: number;
+}) {
+  if (typeof percent !== "number" || percent < MIN_LABELED_PERCENT) return null;
+  return `${name} ${(percent * 100).toFixed(1)}%`;
 }
 
 /**
@@ -193,9 +248,13 @@ function sectorColorAt(
  *
  * 顏色的層級是「每個扇形一色」，裝不進笛卡兒圖的數列結構，
  * 故由 `colorKey` 指向 data 內的色碼欄位；未指定時回退預設配色。
+ *
+ * 半徑較容器可容納的上限保守：外置標籤與其引線需要橫向空間，
+ * 半徑吃滿寬度會讓標籤被 SVG 邊界裁掉。
  */
 function PieChartView({ chart }: { chart: PieChartDefinition }) {
   const { data, nameKey, valueKey, colorKey } = chart;
+  const palette = useChartPalette();
 
   return (
     <PieChart>
@@ -205,13 +264,15 @@ function PieChartView({ chart }: { chart: PieChartDefinition }) {
         data={data}
         nameKey={nameKey}
         dataKey={valueKey}
-        outerRadius={80}
+        outerRadius={70}
         isAnimationActive={false}
+        label={renderSectorLabel}
+        labelLine
       >
         {data.map((row, index) => (
           <Cell
             key={`${row[nameKey]}-${index}`}
-            fill={sectorColorAt(row, index, colorKey)}
+            fill={sectorColorAt(row, nameKey, colorKey, palette)}
           />
         ))}
       </Pie>

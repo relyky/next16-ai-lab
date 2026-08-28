@@ -1,8 +1,26 @@
 import { beforeAll, describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render as baseRender, screen } from "@testing-library/react";
 
-import { ChartCard, formatAxisTick, seriesColorAt } from "./chart-card";
+import {
+  ChartCard,
+  ChartPaletteProvider,
+  formatAxisTick,
+  renderSectorLabel,
+  seriesColorAt,
+} from "./chart-card";
 import type { ChartDefinition } from "@/lib/charts/chart-tool";
+
+/**
+ * 圖表卡片的顏色來自 provider 供應的對照表，單獨渲染會讓每個類別都回退到第一色。
+ * 此處把被渲染的那張圖自己餵給 provider，色序即該圖內各類別的出現順序——
+ * 與導入對照表之前「依 index 循環」的行為一致，既有斷言的意義因此不變。
+ */
+function render(ui: React.ReactElement) {
+  const chart = (ui.props as { chart?: ChartDefinition }).chart;
+  return baseRender(
+    <ChartPaletteProvider charts={chart ? [chart] : []}>{ui}</ChartPaletteProvider>
+  );
+}
 
 const singleSeries: ChartDefinition = {
   type: "line",
@@ -220,13 +238,22 @@ describe("formatAxisTick", () => {
 });
 
 describe("seriesColorAt", () => {
+  /** 依序把名稱配到色序 0..n-1，模擬這些名稱依序首次出現的對照表。 */
+  const paletteOf = (...names: string[]) =>
+    new Map(names.map((name, index) => [name, index]));
+
   it("series 指定 color 時直接使用該值", () => {
-    expect(seriesColorAt({ key: "revenue", color: "#ff0000" }, 0)).toBe("#ff0000");
+    expect(seriesColorAt({ key: "revenue", color: "#ff0000" }, new Map())).toBe(
+      "#ff0000"
+    );
   });
 
   // 色槽數與 MAX_SERIES 對齊，六組數列才不會有兩組撞色。
-  it("未指定 color 時依序 fallback 到 --chart-1~--chart-6", () => {
-    const colors = [0, 1, 2, 3, 4, 5].map((i) => seriesColorAt({ key: `s${i}` }, i));
+  it("未指定 color 時依名稱查對照表，取 --chart-1~--chart-6", () => {
+    const palette = paletteOf("s0", "s1", "s2", "s3", "s4", "s5");
+    const colors = [0, 1, 2, 3, 4, 5].map((i) =>
+      seriesColorAt({ key: `s${i}` }, palette)
+    );
 
     expect(colors).toEqual([
       "var(--chart-1)",
@@ -238,9 +265,25 @@ describe("seriesColorAt", () => {
     ]);
   });
 
-  it("第 7 組才循環回到 --chart-1", () => {
-    expect(seriesColorAt({ key: "s6" }, 6)).toBe("var(--chart-1)");
-    expect(seriesColorAt({ key: "s7" }, 7)).toBe("var(--chart-2)");
+  it("第 7 個名稱才循環回到 --chart-1", () => {
+    const palette = paletteOf("s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7");
+    expect(seriesColorAt({ key: "s6" }, palette)).toBe("var(--chart-1)");
+    expect(seriesColorAt({ key: "s7" }, palette)).toBe("var(--chart-2)");
+  });
+
+  // 查表的鍵是 label ?? key——與圖例顯示的文字同一個來源。
+  it("有 label 時以 label 查表，而非 key", () => {
+    const palette = paletteOf("其他", "營收");
+    expect(seriesColorAt({ key: "revenue", label: "營收" }, palette)).toBe(
+      "var(--chart-2)"
+    );
+  });
+
+  // 名稱不在表中時回退索引 0，而不是讓整張圖畫不出來。
+  it("名稱不在對照表時回退到 --chart-1", () => {
+    expect(seriesColorAt({ key: "unknown" }, paletteOf("其他"))).toBe(
+      "var(--chart-1)"
+    );
   });
 });
 
@@ -362,5 +405,31 @@ describe("ChartCard 餅圖", () => {
   it("顯示圖表標題", () => {
     render(<ChartCard chart={pieChart} />);
     expect(screen.getByText("成本結構")).toBeInTheDocument();
+  });
+});
+
+// 標籤文字的 SVG 節點在 jsdom 下不生成，故直接驗產生文字的純函式。
+describe("renderSectorLabel", () => {
+  it("標出類別名稱與佔比百分比", () => {
+    expect(renderSectorLabel({ name: "原料", percent: 0.5 })).toBe("原料 50.0%");
+  });
+
+  // 整數會讓 33.3% 與 33.4% 併成同一個數字，看起來像資料有誤。
+  it("百分比取一位小數", () => {
+    expect(renderSectorLabel({ name: "人力", percent: 1 / 3 })).toBe("人力 33.3%");
+  });
+
+  // 標籤字寬固定，過窄的扇形標上去只會互相疊住。
+  it("佔比過小的扇形不標", () => {
+    expect(renderSectorLabel({ name: "雜項", percent: 0.02 })).toBeNull();
+  });
+
+  it("佔比達門檻的扇形照標", () => {
+    expect(renderSectorLabel({ name: "雜項", percent: 0.03 })).toBe("雜項 3.0%");
+  });
+
+  // recharts 未帶 percent 時不該畫出 "undefined%"。
+  it("沒有 percent 時不標", () => {
+    expect(renderSectorLabel({ name: "原料" })).toBeNull();
   });
 });

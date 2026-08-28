@@ -1,9 +1,9 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
 import { AssistantMarkdown } from "@/components/assistant-markdown";
-import { ChartCard } from "@/components/chart-card";
+import { ChartCard, ChartPaletteProvider } from "@/components/chart-card";
 import { ChatInput } from "@/components/chat-input";
 import { ToolUsageList, type ToolUsage } from "@/components/tool-usage-list";
 import { Card } from "@/components/ui/card";
@@ -296,6 +296,13 @@ export default function ChatPage() {
   // 識別碼，只有它在串流期間才啟用動畫。
   const lastAssistantId = messages.findLast((m) => m.role === "assistant")?.id;
 
+  // 配色對照表的輸入：所有訊息的所有圖表，依實際產生順序攤平。
+  // 這是 messages 的衍生值而非另一份狀態，串流過程中重複 render 也不會讓色序漂移。
+  const allCharts = useMemo(
+    () => messages.flatMap((m) => m.charts ?? []),
+    [messages]
+  );
+
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-4">
       <label className="flex items-center gap-2 self-end pt-4 text-sm text-muted-foreground">
@@ -313,20 +320,23 @@ export default function ChatPage() {
             輸入你的財務問題，開始與財務助手對話。
           </p>
         )}
-        {messages.map((message) =>
-          message.role === "user" ? (
-            <UserMessage key={message.id} text={message.text} />
-          ) : (
-            <AssistantMessage
-              key={message.id}
-              text={message.text}
-              notice={message.notice}
-              charts={message.charts}
-              toolUsages={showToolUsages ? message.toolUsages : undefined}
-              isAnimating={loading && message.id === lastAssistantId}
-            />
-          )
-        )}
+        {/* 對照表涵蓋整個對話：同一個類別名稱在所有訊息的所有圖表裡同色。 */}
+        <ChartPaletteProvider charts={allCharts}>
+          {messages.map((message) =>
+            message.role === "user" ? (
+              <UserMessage key={message.id} text={message.text} />
+            ) : (
+              <AssistantMessage
+                key={message.id}
+                text={message.text}
+                notice={message.notice}
+                charts={message.charts}
+                toolUsages={showToolUsages ? message.toolUsages : undefined}
+                isAnimating={loading && message.id === lastAssistantId}
+              />
+            )
+          )}
+        </ChartPaletteProvider>
         {loading && (
           <p className="text-sm text-muted-foreground">財務助手思考中……</p>
         )}
