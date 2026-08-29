@@ -16,7 +16,6 @@ import {
   CartesianGrid,
   DefaultLegendContent,
   Legend,
-  Cell,
   Line,
   LineChart,
   Pie,
@@ -29,6 +28,7 @@ import {
   ResponsiveContainer,
   Scatter,
   ScatterChart,
+  Sector,
   Symbols,
   Tooltip,
   XAxis,
@@ -41,7 +41,7 @@ import {
   paletteColorFor,
   type ChartPalette,
 } from "@/lib/charts/chart-palette";
-import type { LegendPayload } from "recharts";
+import type { LegendPayload, PieSectorShapeProps } from "recharts";
 
 import { DEFAULT_BUBBLE_RADIUS_RANGE } from "@/lib/charts/chart-tool";
 import type {
@@ -259,6 +259,32 @@ export function renderSectorLabel({
 }
 
 /**
+ * 扇形的自訂 shape：逐扇形決定填色。
+ *
+ * 取代已棄用的 `Cell`——recharts 3.x 標記 `Cell` 為 deprecated 並將於 4.0 移除，
+ * 官方替代方案即為此處的 `shape` prop（見 recharts 的 Cell 遷移指南）。
+ * `Cell` 被淘汰的理由之一正好也適用於我們：它的 props 依所在圖表而異
+ * （Bar 要 Rectangle、Pie 要 Sector），TypeScript 標不出來。
+ *
+ * 回傳 render function 而非直接當元件用：著色需要的 `nameKey` / `colorKey` /
+ * 對照表都不在 recharts 傳進來的 props 裡，得由外層先綁好——與散佈圖的
+ * `bubbleShapeRenderer` 同一個模式。
+ *
+ * 原始資料列從 `payload` 取：recharts 把它原封不動附在每個扇形的 props 上，
+ * 故 `colorKey` 指到的欄位在此讀得到。
+ */
+function sectorShapeRenderer(
+  nameKey: string,
+  colorKey: string | undefined,
+  palette: ChartPalette
+) {
+  return function PieSector(props: PieSectorShapeProps) {
+    const row = props.payload as Record<string, string | number>;
+    return <Sector {...props} fill={sectorColorAt(row, nameKey, colorKey, palette)} />;
+  };
+}
+
+/**
  * 餅圖（單一數列 × 多類別）：無軸線與格線，扇形角度即為佔比。
  *
  * 顏色的層級是「每個扇形一色」，裝不進笛卡兒圖的數列結構，
@@ -283,14 +309,8 @@ function PieChartView({ chart }: { chart: PieChartDefinition }) {
         isAnimationActive={false}
         label={renderSectorLabel}
         labelLine
-      >
-        {data.map((row, index) => (
-          <Cell
-            key={`${row[nameKey]}-${index}`}
-            fill={sectorColorAt(row, nameKey, colorKey, palette)}
-          />
-        ))}
-      </Pie>
+        shape={sectorShapeRenderer(nameKey, colorKey, palette)}
+      />
     </PieChart>
   );
 }

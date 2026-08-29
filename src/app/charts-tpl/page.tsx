@@ -1,3 +1,4 @@
+import { PieChartTpl } from "./pie-chart-tpl";
 import { ScatterChartTpl } from "./scatter-chart-tpl";
 
 export default function ChartsTplPage() {
@@ -11,6 +12,7 @@ export default function ChartsTplPage() {
       </div>
 
       <ScatterChartTpl />
+      <PieChartTpl />
     </div>
   );
 }
