@@ -3,12 +3,12 @@ import { render as baseRender, screen } from "@testing-library/react";
 
 import {
   axisLabel,
+  CHART_KIND_LABEL,
   bubbleAxisLabels,
   ChartCard,
   ChartPaletteProvider,
   formatAxisTick,
   renderSectorLabel,
-  scatterLegendPayload,
   seriesColorAt,
 } from "./chart-card";
 import type { ChartDefinition, ScatterChartDefinition } from "@/lib/charts/chart-tool";
@@ -865,40 +865,84 @@ describe("ChartCard 散佈圖", () => {
 });
 
 /**
- * 圖例項目的組成規則單獨測試：不必渲染整張圖就能驗，也才驗得到項目順序。
+ * 圖種名稱對照表：六種齊全，且卡片本身不帶這個標示。
+ *
+ * 對照表是 `Record<ChartDefinition["type"], string>`，漏一種 TypeScript 就報錯，
+ * 故這裡只驗值本身沒被寫錯（如把散佈圖寫成「散布圖」）。
+ * 「卡片外」那一條則是刻意的：圖種由呼叫端決定要不要標，不是卡片的一部分。
  */
-describe("scatterLegendPayload", () => {
-  const base = scatterChart as ScatterChartDefinition;
-
-  it("未提供 sizeKey 時只有各數列", () => {
-    expect(scatterLegendPayload(base, new Map()).map((i) => i.value)).toEqual(["銷量"]);
+describe("CHART_KIND_LABEL", () => {
+  it("六種圖表各有中文名稱", () => {
+    expect(CHART_KIND_LABEL).toEqual({
+      line: "折線圖",
+      bar: "長條圖",
+      area: "區域圖",
+      pie: "圓餅圖",
+      radar: "雷達圖",
+      scatter: "散佈圖",
+    });
   });
 
-  it("提供 sizeKey 時在數列之後追加「大小」項", () => {
-    const payload = scatterLegendPayload({ ...base, sizeKey: "profit" }, new Map());
+  it("ChartCard 本身不渲染圖種名稱", () => {
+    const { container } = render(<ChartCard chart={scatterChart} />);
 
-    expect(payload.map((i) => i.value)).toEqual(["銷量", "大小：profit"]);
+    expect(container.querySelector('[data-slot="chart-kind"]')).toBeNull();
+    expect(container.textContent).not.toContain("散佈圖");
   });
+});
 
-  // 與 series[].label「未提供時使用 key」的既有模式一致。
-  it("sizeLabel 勝過 sizeKey", () => {
-    const payload = scatterLegendPayload(
-      { ...base, sizeKey: "profit", sizeLabel: "利潤" },
-      new Map()
+/**
+ * 圖例只列各數列，不再有「大小」那一項。
+ *
+ * 該項曾是氣泡維度唯一的靜態標示管道（ADR 0006），已依需求移除。這裡守著
+ * 「大小項不會回來」與「順序與 series 一致」兩件事——後者不是白守的：
+ * recharts 原生收集出來的圖例是反序的，順序全靠自組 payload 撐住。
+ */
+describe("散佈圖圖例", () => {
+  it("提供 sizeKey 時圖例仍只列各數列，不含「大小」項", () => {
+    const { container } = render(
+      <ChartCard chart={{ ...scatterChart, sizeKey: "profit", sizeLabel: "利潤" }} />
     );
+    const items = Array.from(
+      container.querySelectorAll(".recharts-legend-item-text")
+    ).map((el) => el.textContent);
 
-    expect(payload.at(-1)?.value).toBe("大小：利潤");
+    expect(items).toEqual(["銷量"]);
+    expect(container.textContent).not.toContain("大小");
+  });
+
+  it("多數列時圖例列出各數列，順序與 series 一致", () => {
+    const { container } = render(<ChartCard chart={multiSeriesScatter} />);
+    const items = Array.from(
+      container.querySelectorAll(".recharts-legend-item-text")
+    ).map((el) => el.textContent);
+
+    expect(items).toEqual(["銷量", "成本"]);
   });
 
   /**
-   * 「大小」項表達的是大小而非顏色，圖示必須是中性空心圓，
-   * 與數列的實心色圓區分得開，否則會被讀成第四組數列。
+   * 三個數列才驗得出「反序」與「恰好對調」的差別——兩個數列時兩者看起來一樣。
+   * recharts 原生收集會給出 丙乙甲，這條守著自組 payload 沒有被拿掉。
    */
-  it("「大小」項以自訂空心圓圖示取代數列的實心色圓", () => {
-    const payload = scatterLegendPayload({ ...base, sizeKey: "profit" }, new Map());
+  it("三數列時圖例順序不被 recharts 反轉", () => {
+    const threeSeries = {
+      ...multiSeriesScatter,
+      data: [
+        { price: 10, sales: 400, cost: 120, profit: 30 },
+        { price: 20, sales: 250, cost: 90, profit: 20 },
+      ],
+      series: [
+        { key: "sales", label: "銷量" },
+        { key: "cost", label: "成本" },
+        { key: "profit", label: "利潤" },
+      ],
+    } as ChartDefinition;
+    const { container } = render(<ChartCard chart={threeSeries} />);
+    const items = Array.from(
+      container.querySelectorAll(".recharts-legend-item-text")
+    ).map((el) => el.textContent);
 
-    expect(payload[0].legendIcon).toBeUndefined();
-    expect(payload.at(-1)?.legendIcon).toBeDefined();
+    expect(items).toEqual(["銷量", "成本", "利潤"]);
   });
 });
 

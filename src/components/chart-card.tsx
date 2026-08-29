@@ -427,6 +427,30 @@ export function axisLabel(value: string | undefined, axis: "x" | "y") {
 }
 
 /**
+ * 散佈圖的圖例項目：各數列，依 `series` 的宣告順序。
+ *
+ * 自行組 payload 而非讓 recharts 從各 `Scatter` 收集：原生收集出來是**反序**的
+ * （實測三數列 甲乙丙 → 丙乙甲），與 `series` 的宣告順序、以及配色對照表的
+ * 取色順序都對不上，讀者會把圖例的第一項對到畫面上的另一個顏色。
+ *
+ * 曾另有一項「大小：{sizeLabel}」標示氣泡維度（ADR 0006），已依需求移除；
+ * `sizeLabel` / `sizeUnit` 改由 Tooltip 單獨承載。
+ *
+ * 匯出並單獨測試：圖例項目的組成規則不必渲染整張圖就能驗。
+ */
+export function scatterLegendPayload(
+  chart: ScatterChartDefinition,
+  palette: ChartPalette
+): LegendPayload[] {
+  return chart.series.map((s) => ({
+    value: s.label ?? s.key,
+    type: "circle" as const,
+    dataKey: s.key,
+    color: seriesColorAt(s, palette),
+  }));
+}
+
+/**
  * 氣泡大小這個維度交給 `ZAxis` 的標示 props。
  *
  * `ZAxis` 同時承載氣泡幾何（`range`，見 BUBBLE_AREA_RANGE）與 Tooltip 的名稱、
@@ -440,82 +464,6 @@ export function bubbleAxisLabels(chart: ScatterChartDefinition) {
   const { sizeKey, sizeLabel, sizeUnit } = chart;
 
   return { dataKey: sizeKey, name: sizeLabel ?? sizeKey, unit: sizeUnit };
-}
-
-/**
- * 氣泡大小那一項的圖例圖示：中性的空心圓。
- *
- * 刻意不上色也不填滿：這一項表達的是「大小」而非「顏色」，與數列的實心色圓
- * 在視覺上必須區分得開，否則讀者會把它讀成第四組數列。以 `currentColor` 描邊，
- * 深淺色主題下都跟著文字色走。
- *
- * 幾何數字用的是 recharts 圖例 svg 的 **viewBox** 邊長（`0 0 32 32`），而非它
- * 顯示出來的 14px 寬度——`legendIcon` 的內容畫在 viewBox 座標裡。用 14 會讓
- * 圖示只有四成大小且偏左，實機看起來像一個辨識不出形狀的小點。
- */
-const LEGEND_ICON_SIZE = 32;
-
-function BubbleLegendIcon() {
-  const half = LEGEND_ICON_SIZE / 2;
-  return (
-    <g className="recharts-legend-icon">
-      {/*
-        兩個同心圓表達的是「大小是一個會變動的維度」，單一個圓只會被讀成
-        一個普通的點。外圈虛線是那個維度的上界，實心小圓是下界。
-      */}
-      <circle
-        cx={half}
-        cy={half}
-        r={half - 2}
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={3}
-        strokeDasharray="5 3.5"
-        opacity={0.8}
-      />
-      <circle cx={half} cy={half} r={5} fill="currentColor" opacity={0.8} />
-    </g>
-  );
-}
-
-/**
- * 散佈圖的圖例項目：各數列之後，`sizeKey` 提供時再追加一項「大小」。
- *
- * 氣泡大小是三個維度中唯一沒有軸刻度可依附的，圖例是它唯一的靜態標示管道。
- * 詳見 docs/adr/0006。
- *
- * 自行組 payload 而非讓 recharts 從各 `Scatter` 收集：追加的「大小」項不對應
- * 任何一個 `Scatter`，沒有地方掛得上去。自行組同時也讓數列項與大小項的順序
- * 明確可控。
- *
- * 匯出並單獨測試：圖例項目的組成規則不必渲染整張圖就能驗。
- */
-export function scatterLegendPayload(
-  chart: ScatterChartDefinition,
-  palette: ChartPalette
-): LegendPayload[] {
-  const { series, sizeKey, sizeLabel } = chart;
-
-  const seriesItems = series.map((s) => ({
-    value: s.label ?? s.key,
-    type: "circle" as const,
-    dataKey: s.key,
-    color: seriesColorAt(s, palette),
-  }));
-
-  if (sizeKey === undefined) return seriesItems;
-
-  return [
-    ...seriesItems,
-    {
-      value: `大小：${sizeLabel ?? sizeKey}`,
-      type: "circle" as const,
-      dataKey: sizeKey,
-      // 文字色跟著主題走；圖示自身由 legendIcon 覆寫成空心圓。
-      color: "currentColor",
-      legendIcon: <BubbleLegendIcon />,
-    },
-  ];
 }
 
 /**
@@ -617,9 +565,15 @@ function ScatterChartView({ chart }: { chart: ScatterChartDefinition }) {
         左上角後不再與 X 軸標題爭同一條帶狀區域，舊版為閃避標題而做的 `paddingTop`
         微調因此不必要。
       */}
+      {/*
+        payload 仍自行組出，理由已不是「追加大小項」（該項已移除），而是**順序**：
+        recharts 從各 `Scatter` 原生收集出來的圖例是**反序**的（實測三數列
+        甲乙丙 → 丙乙甲），與 `series` 的宣告順序、以及配色對照表的取色順序都對不上。
+        自組 payload 讓圖例順序與 `series` 一致。
+      */}
       <Legend
-        position="insideTopLeft"
-        layout="vertical"
+        position="top"
+        layout="auto"
         content={(props) => (
           <DefaultLegendContent
             {...props}
@@ -656,6 +610,24 @@ function ChartBody({ chart }: { chart: ChartDefinition }) {
       return <ScatterChartView chart={chart} />;
   }
 }
+
+/**
+ * 各圖表類型的中文名稱。
+ *
+ * 匯出而非在 `ChartCard` 內部使用：圖種是卡片**外**的標示，由呼叫端決定要不要標、
+ * 用什麼層級的標題標——樣板頁需要它來區隔各段，對話串裡的圖表則未必。
+ * 名稱沿用 `src/app/chat-tpl/page.tsx` 已在用的措辭，同一個概念不在兩處各叫各的。
+ *
+ * 用 Record 而非 switch：新增一種圖表時漏了這裡，TypeScript 會直接報錯。
+ */
+export const CHART_KIND_LABEL: Record<ChartDefinition["type"], string> = {
+  line: "折線圖",
+  bar: "長條圖",
+  area: "區域圖",
+  pie: "圓餅圖",
+  radar: "雷達圖",
+  scatter: "散佈圖",
+};
 
 export function ChartCard({ chart }: { chart: ChartDefinition }) {
   return (
