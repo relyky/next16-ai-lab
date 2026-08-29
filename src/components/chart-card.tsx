@@ -25,11 +25,9 @@ import {
   PolarRadiusAxis,
   Radar,
   RadarChart,
-  ResponsiveContainer,
   Scatter,
   ScatterChart,
   Sector,
-  Symbols,
   Tooltip,
   XAxis,
   YAxis,
@@ -43,7 +41,6 @@ import {
 } from "@/lib/charts/chart-palette";
 import type { LegendPayload, PieSectorShapeProps } from "recharts";
 
-import { DEFAULT_BUBBLE_RADIUS_RANGE } from "@/lib/charts/chart-tool";
 import type {
   CartesianChartDefinition,
   CartesianChartType,
@@ -150,6 +147,30 @@ const CARTESIAN_KINDS = {
 >;
 
 /**
+ * 折線／長條／區域／餅／雷達五種圖表的自適應尺寸。
+ *
+ * recharts 3.x 的 `responsive` prop 取代了 `ResponsiveContainer`——寬度改由圖表
+ * 自己依 `style` 量測，不必再多包一層。高度 240 是遷移前 `ResponsiveContainer`
+ * 的固定值，沿用以免順帶改變這五種圖表的視覺尺寸。
+ *
+ * 散佈圖不套這一組：它改用正方形的長寬比（見 SCATTER_CHART_STYLE）。
+ */
+const FIXED_HEIGHT_CHART_STYLE = { width: "100%", height: 240 } as const;
+
+/**
+ * 散佈圖專用的尺寸：正方形，並以視窗高度設上限。
+ *
+ * 兩軸都是連續數值軸，非正方形的繪圖區會讓同一段距離在兩軸上代表不同的量，
+ * 分布形狀因此被拉扁。`maxHeight` 防止寬螢幕下整張圖高過一個畫面。
+ * 比照 charts-tpl 的驗證值，但不取它的 `maxWidth`——卡片本身已限寬。
+ */
+const SCATTER_CHART_STYLE = {
+  width: "100%",
+  maxHeight: "70vh",
+  aspectRatio: 1,
+} as const;
+
+/**
  * Y 軸刻度標籤：大數值改以 K / M / B 單位縮寫。
  *
  * recharts 預設為 Y 軸保留 60px，而千萬級的原始數字（如 `4000000`）寬約 65px，
@@ -195,7 +216,7 @@ function CartesianChartView({ chart }: { chart: CartesianChartDefinition }) {
   const stackProps = stacked ? { stackId: STACK_ID } : {};
 
   return (
-    <Container data={data}>
+    <Container data={data} responsive style={FIXED_HEIGHT_CHART_STYLE}>
       <CartesianGrid strokeDasharray="3 3" />
       <XAxis dataKey={xKey} />
       <YAxis tickFormatter={formatAxisTick} />
@@ -267,8 +288,7 @@ export function renderSectorLabel({
  * （Bar 要 Rectangle、Pie 要 Sector），TypeScript 標不出來。
  *
  * 回傳 render function 而非直接當元件用：著色需要的 `nameKey` / `colorKey` /
- * 對照表都不在 recharts 傳進來的 props 裡，得由外層先綁好——與散佈圖的
- * `bubbleShapeRenderer` 同一個模式。
+ * 對照表都不在 recharts 傳進來的 props 裡，得由外層先綁好。
  *
  * 原始資料列從 `payload` 取：recharts 把它原封不動附在每個扇形的 props 上，
  * 故 `colorKey` 指到的欄位在此讀得到。
@@ -298,7 +318,7 @@ function PieChartView({ chart }: { chart: PieChartDefinition }) {
   const palette = useChartPalette();
 
   return (
-    <PieChart>
+    <PieChart responsive style={FIXED_HEIGHT_CHART_STYLE}>
       <Tooltip />
       <Legend />
       <Pie
@@ -332,7 +352,7 @@ function RadarChartView({ chart }: { chart: RadarChartDefinition }) {
   const palette = useChartPalette();
 
   return (
-    <RadarChart data={data}>
+    <RadarChart data={data} responsive style={FIXED_HEIGHT_CHART_STYLE}>
       <PolarGrid />
       <PolarAngleAxis dataKey={angleKey} />
       <PolarRadiusAxis tick={false} axisLine={false} />
@@ -355,67 +375,6 @@ function RadarChartView({ chart }: { chart: RadarChartDefinition }) {
       })}
     </RadarChart>
   );
-}
-
-/**
- * 氣泡半徑對資料值的映射曲線指數。
- *
- * 半徑正比於正規化資料值的 0.75 次方，是兩個極端之間的折衷：
- * 半徑線性（指數 1）契約最誠實——`range` 說 6–30 就均勻畫 6–30——但放棄了
- * 「面積在感知上正確」，人眼比較圓的大小時比較的是面積，大值會看起來被過度放大；
- * 面積線性（指數 0.5，即 recharts `ZAxis.range` 的內建行為）感知正確，
- * 但 `sqrt` 把中段往高值推，多數真實資料的氣泡因此擠成一團讀不出差異。
- * 詳見 docs/adr/0005。
- */
-const BUBBLE_RADIUS_EXPONENT = 0.75;
-
-/**
- * 依資料值算出該氣泡的半徑（px）。
- *
- * 起算點是**資料最小值**而非 0：recharts 內建的 `ZAxis.range` 映射固定從 0 起算，
- * 只有資料恰好含 0 時最小半徑才取得到——那讓 `range` 的「最小半徑」對多數資料集
- * 說謊。此處先把值正規化到 [0, 1] 再套曲線，`range` 的兩端因此恆等於資料兩端。
- *
- * 值域以 tuple 收下而非拆成兩個參數：`bubbleValueExtent` 本來就回傳這個形狀，
- * 拆開只是讓呼叫端多一個把兩個數字傳反的機會。
- *
- * 資料值全部相同（值域兩端相等）時沒有可分辨的大小差異，一律取最小半徑：
- * 取最大半徑會讓一組毫無差異的資料畫出滿版的氣泡，暗示了不存在的高值。
- *
- * 匯出並單獨測試：jsdom 不產生 SVG 幾何，此換算在渲染斷言中驗不到。
- */
-export function bubbleRadiusAt(
-  value: number,
-  extent: readonly [number, number],
-  radiusRange: readonly [number, number] = DEFAULT_BUBBLE_RADIUS_RANGE
-): number {
-  const [dataMin, dataMax] = extent;
-  const [minRadius, maxRadius] = radiusRange;
-  if (dataMax <= dataMin) return minRadius;
-
-  const normalized = (value - dataMin) / (dataMax - dataMin);
-  // 值域外的資料點沒有意義，但夾住可保證半徑不超出契約宣稱的範圍。
-  const clamped = Math.min(Math.max(normalized, 0), 1);
-  return minRadius + clamped ** BUBBLE_RADIUS_EXPONENT * (maxRadius - minRadius);
-}
-
-/**
- * 推出散佈圖繪圖區四周需要的邊距。
- *
- * 氣泡以資料點為圓心向外擴張半徑的距離，而位於值域端點的資料點就落在繪圖區邊界上，
- * 半個圓因此會被 SVG 裁掉，最外側的刻度也會被蓋住。recharts 的預設邊距是為
- * 線與長條設計的——它們不超出自己的資料點，散佈圖是唯一會超出的圖表類型。
- *
- * 未提供 `sizeKey` 時所有點是 recharts 的預設尺寸（遠小於半徑上限），不必預留。
- * 左側不必補：Y 軸以 `width="auto"` 自行量出刻度文字所需的寬度。
- */
-function bubbleMargin(
-  sizeKey: string | undefined,
-  range: readonly [number, number] | undefined
-) {
-  const bubbleRadius = sizeKey ? (range ?? DEFAULT_BUBBLE_RADIUS_RANGE)[1] : 0;
-
-  return { top: bubbleRadius, right: bubbleRadius, bottom: bubbleRadius, left: 0 };
 }
 
 /**
@@ -470,10 +429,10 @@ export function axisLabel(value: string | undefined, axis: "x" | "y") {
 /**
  * 氣泡大小這個維度交給 `ZAxis` 的標示 props。
  *
- * `ZAxis` 在本圖表已不參與幾何——半徑由 `bubbleShapeRenderer` 決定——它留下來
- * 純粹是為了承載 Tooltip 的名稱與單位。抽成具名函式並單獨測試：`ZAxis` 不渲染
- * 任何 DOM，這兩個值在渲染斷言中驗不到，而 `sizeUnit` 是三個單位裡唯一沒有
- * 刻度可依附的，接錯了畫面上看不出來。
+ * `ZAxis` 同時承載氣泡幾何（`range`，見 BUBBLE_AREA_RANGE）與 Tooltip 的名稱、
+ * 單位；此函式只負責後者。抽成具名函式並單獨測試：`ZAxis` 不渲染任何 DOM，
+ * 這兩個值在渲染斷言中驗不到，而 `sizeUnit` 是三個單位裡唯一沒有刻度可依附的，
+ * 接錯了畫面上看不出來。
  *
  * 名稱未提供 `sizeLabel` 時回退 `sizeKey`，與 `series[].label` 的既有模式一致。
  */
@@ -560,67 +519,42 @@ export function scatterLegendPayload(
 }
 
 /**
- * 掃出 `sizeKey` 欄位的值域，供半徑映射的正規化使用。
+ * 氣泡大小的值域，直接交給 recharts 的 `ZAxis.range`。
  *
- * 非數值的列已由 tool 端擋下，此處只需忽略——前端不重複那條驗證。
- * 沒有任何數值時回傳 undefined，呼叫端據此退回 recharts 的預設尺寸。
+ * **單位是面積而非半徑**——recharts 內部以 `r = sqrt(size / π)` 反推半徑，
+ * 故 1280 換算後的最大半徑約 20.2px、64 的最小半徑約 4.5px。
+ *
+ * 兩個數值取自 charts-tpl 的實機驗證（`src/app/charts-tpl/scatter-chart-tpl.tsx`），
+ * 不參數化：改用函式庫內建的映射，正是為了不再自訂氣泡幾何。這放棄了
+ * docs/adr/0005 曾修正的兩個缺陷（中段壓縮、起算點固定為 0），屬知情取捨，
+ * 詳見該文件的「後續修正」一節。
  */
-function bubbleValueExtent(
-  data: readonly Record<string, string | number>[],
-  sizeKey: string
-): [number, number] | undefined {
-  const values = data
-    .map((row) => row[sizeKey])
-    .filter((value): value is number => typeof value === "number");
-  if (values.length === 0) return undefined;
-
-  return [Math.min(...values), Math.max(...values)];
-}
+const BUBBLE_AREA_RANGE: readonly [number, number] = [64, 1280];
 
 /**
- * 氣泡的自訂 shape：以我們自己算出的半徑覆蓋 recharts 內建的映射。
+ * 面積上界換算回來的最大氣泡半徑（px）。
  *
- * 不能只靠 `ZAxis.range`——recharts 內部是「線性映射到面積後再開根號還原半徑」，
- * 曲線固定為面積線性，且起算點固定為 0，兩者都是 docs/adr/0005 記錄的缺陷。
- * 這裡改成自己決定半徑，`ZAxis` 只留下來承載 Tooltip 需要的名稱與單位。
- *
- * 回傳一個 render function 而非直接當元件用：recharts 把資料點的所有屬性
- * 攤平成 props 傳進來，半徑要用的原始值只在 `payload` 裡，得由外層先綁好
- * 值域與範圍才算得出來。
- *
- * `size`（面積）、`width`/`height`（直徑）、`x`/`y`（外接框左上角）全部一起覆寫：
- * recharts 依 `size` 畫路徑，其餘四項則是它算給資料點的外接框，不同步蓋掉的話
- * 畫出來的圓與它自認的幾何會對不上——測試正是讀 `width` 來驗半徑的。
+ * 由 `BUBBLE_AREA_RANGE` 推導而非寫死：兩者散成各自的字面值會在改動時漏改，
+ * 而這個值同時決定了繪圖區的邊距（見下方 `SCATTER_CHART_MARGIN`）——
+ * 邊距若小於半徑，端點的氣泡就會被 SVG 裁掉半邊。
+ * 這條「只定義一次」的理由與 docs/adr/0005 對 MAX_BUBBLE_RADIUS 的處理相同。
  */
-function bubbleShapeRenderer(
-  sizeKey: string,
-  extent: readonly [number, number],
-  range: readonly [number, number] | undefined
-) {
-  return function BubbleSymbol(props: object) {
-    const { cx, cy, payload, ...rest } = props as {
-      cx?: number;
-      cy?: number;
-      payload: Record<string, string | number>;
-    } & Record<string, unknown>;
+const MAX_BUBBLE_RADIUS = Math.sqrt(BUBBLE_AREA_RANGE[1] / Math.PI);
 
-    const radius = bubbleRadiusAt(Number(payload[sizeKey]), extent, range);
-
-    return (
-      <Symbols
-        {...rest}
-        cx={cx}
-        cy={cy}
-        type="circle"
-        size={Math.PI * radius * radius}
-        width={2 * radius}
-        height={2 * radius}
-        x={cx == null ? undefined : cx - radius}
-        y={cy == null ? undefined : cy - radius}
-      />
-    );
-  };
-}
+/**
+ * 散佈圖繪圖區的邊距。
+ *
+ * 氣泡以資料點為圓心向外擴張，端點的圓會被 SVG 裁掉半邊，故上／右各留一整個
+ * 最大半徑（無條件進位——邊距吃的是整數 px，捨去會差那零點幾 px 而露出裁切）。
+ * charts-tpl 用的 20 正是這樣差了 0.19px。
+ * 左右另有 Y 軸與 X 軸末刻度撐開，下方 10 已足夠。
+ */
+const SCATTER_CHART_MARGIN = {
+  top: Math.ceil(MAX_BUBBLE_RADIUS),
+  right: Math.ceil(MAX_BUBBLE_RADIUS),
+  bottom: 10,
+  left: 10,
+} as const;
 
 /**
  * 散佈圖（連續數值 X 軸 × 多數列）：各數列畫成一組資料點。
@@ -632,17 +566,15 @@ function bubbleShapeRenderer(
  * 所有點被同一個常數尺寸驅動，而 recharts 的預設本來就是這個行為。
  */
 function ScatterChartView({ chart }: { chart: ScatterChartDefinition }) {
-  const { data, xKey, xUnit, yUnit, xLabel, yLabel, series, sizeKey, range } = chart;
+  const { data, xKey, xUnit, yUnit, xLabel, yLabel, series, sizeKey } = chart;
   const palette = useChartPalette();
 
   // 單一數列時 Y 軸只承載那一個欄位，其名稱即該軸的名稱；多數列時取其一
   // 會對其餘數列說謊，此時圖例已列出各數列名稱，Y 軸不另取名。
   const yAxisName = series.length === 1 ? (series[0].label ?? series[0].key) : undefined;
 
-  const extent = sizeKey ? bubbleValueExtent(data, sizeKey) : undefined;
-
   return (
-    <ScatterChart margin={bubbleMargin(sizeKey, range)}>
+    <ScatterChart responsive style={SCATTER_CHART_STYLE} margin={SCATTER_CHART_MARGIN}>
       <CartesianGrid strokeDasharray="3 3" />
       {/*
         三個軸都給 `name` 與選填的 `unit`：散佈圖的軸是純數值，刻度本身不說明
@@ -650,12 +582,8 @@ function ScatterChartView({ chart }: { chart: ScatterChartDefinition }) {
         互動**的情況下即可讀出這個維度是什麼——AI 對話產生的圖表最常見的用法
         是截圖轉貼，Tooltip 在那個情境下完全失效。比照 recharts 官方
         SimpleScatterChart 把資訊拆進刻度與圖例兩處。
-
-        不用旋轉的軸標題：recharts 的 Label 依水平可用寬度自動斷詞，
-        中文旋轉後會被折成一字一行，與函式庫對抗不划算。
       */}
-      {/* height="auto" 讓 X 軸把標題的高度算進去，否則標題會疊在刻度上。 */}
-      {/* 標題畫在軸外側，需要多留高度，否則會被 SVG 下緣裁掉。 */}
+      {/* 標題畫在軸的高度內，需要多留高度，否則會疊在刻度上。 */}
       <XAxis
         type="number"
         dataKey={xKey}
@@ -675,11 +603,8 @@ function ScatterChartView({ chart }: { chart: ScatterChartDefinition }) {
         tickFormatter={formatAxisTick}
       />
       {sizeKey ? (
-        /*
-          半徑改由 BubbleSymbol 自行決定，故不給 `range`——留著只會讓讀者
-          以為半徑是它算的。`ZAxis` 在此純粹承載 Tooltip 的名稱與單位。
-        */
-        <ZAxis type="number" {...bubbleAxisLabels(chart)} />
+        /* 半徑由 recharts 依 `range`（面積）內建映射；同時承載 Tooltip 的名稱與單位。 */
+        <ZAxis type="number" range={BUBBLE_AREA_RANGE} {...bubbleAxisLabels(chart)} />
       ) : null}
       <Tooltip />
       {/*
@@ -688,11 +613,13 @@ function ScatterChartView({ chart }: { chart: ScatterChartDefinition }) {
         都是裸數字，沒有脈絡可倚靠，單一數列正是最需要圖例的情境。詳見 docs/adr/0006。
       */}
       {/*
-        有 X 軸標題時把圖例往下讓：標題排在軸高度的底部，圖例的預設位置會與它
-        重疊約數 px。實機量過——標題下緣 189、圖例上緣 186。
+        `position` + `layout` 取代已棄用的 `verticalAlign` / `align`。圖例移進繪圖區
+        左上角後不再與 X 軸標題爭同一條帶狀區域，舊版為閃避標題而做的 `paddingTop`
+        微調因此不必要。
       */}
       <Legend
-        wrapperStyle={xLabel === undefined ? undefined : { paddingTop: 12 }}
+        position="insideTopLeft"
+        layout="vertical"
         content={(props) => (
           <DefaultLegendContent
             {...props}
@@ -708,9 +635,6 @@ function ScatterChartView({ chart }: { chart: ScatterChartDefinition }) {
           name={s.label ?? s.key}
           fill={seriesColorAt(s, palette)}
           isAnimationActive={false}
-          shape={
-            extent && sizeKey ? bubbleShapeRenderer(sizeKey, extent, range) : undefined
-          }
         />
       ))}
     </ScatterChart>
@@ -741,9 +665,7 @@ export function ChartCard({ chart }: { chart: ChartDefinition }) {
           {chart.title}
         </div>
       ) : null}
-      <ResponsiveContainer width="100%" height={240}>
-        <ChartBody chart={chart} />
-      </ResponsiveContainer>
+      <ChartBody chart={chart} />
     </div>
   );
 }

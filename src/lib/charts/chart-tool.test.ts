@@ -8,7 +8,6 @@ import {
   buildPieChartResult,
   buildRadarChartResult,
   buildScatterChartResult,
-  MAX_BUBBLE_RADIUS,
 } from "./chart-tool";
 
 const validInput = {
@@ -444,11 +443,10 @@ describe("buildScatterChartResult", () => {
   });
 
   // 定義 JSON 保持稀疏：沒傳的選填欄位不該憑空出現。
-  it("未提供 sizeKey 與 range 時兩者都不出現在圖表定義中", () => {
+  it("未提供 sizeKey 時不出現在圖表定義中", () => {
     const chart = chartOf(buildScatterChartResult(validScatterInput));
 
     expect(chart).not.toHaveProperty("sizeKey");
-    expect(chart).not.toHaveProperty("range");
   });
 
   it("title 未提供時不出現在圖表定義中", () => {
@@ -569,24 +567,16 @@ describe("buildScatterChartResult", () => {
 
 /**
  * 氣泡大小：散佈圖相對於其他圖表的獨特價值。
- * 契約的單位是**半徑**而非 recharts 的面積，詳見 docs/adr/0005。
+ * 氣泡幾何由前端固定的 `ZAxis.range` 承擔，契約只收 `sizeKey` 與它的標示欄位，
+ * 不再開放呼叫端調整大小範圍——詳見 docs/adr/0005 的「後續修正」一節。
  */
 describe("buildScatterChartResult 的氣泡大小", () => {
-  it("提供 sizeKey 與 range 時如實帶入圖表定義", () => {
-    const input = { ...validScatterInput, sizeKey: "profit", range: [4, 20] };
+  it("提供 sizeKey 時如實帶入圖表定義", () => {
+    const input = { ...validScatterInput, sizeKey: "profit" };
     const result = buildScatterChartResult(input);
 
     expect(result.isError).toBeFalsy();
     expect(chartOf(result)).toEqual({ type: "scatter", ...input });
-  });
-
-  // range 選填：sizeKey 本身已是選填，若 range 必填會出現
-  // 「有 range 沒 sizeKey」這種無意義的必填組合。
-  it("只提供 sizeKey 時通過，range 不出現在定義中", () => {
-    const result = buildScatterChartResult({ ...validScatterInput, sizeKey: "profit" });
-
-    expect(result.isError).toBeFalsy();
-    expect(chartOf(result)).not.toHaveProperty("range");
   });
 
   it("sizeKey 不存在於 data 時回傳 isError 並附上可用欄位", () => {
@@ -636,75 +626,6 @@ describe("buildScatterChartResult 的氣泡大小", () => {
 
     expect(result.isError).toBeFalsy();
   });
-
-  // 傳反了會畫出「大值畫小、小值畫大」——一張看起來完全正常但語意相反的圖。
-  it("range 最小值不小於最大值時回傳 isError", () => {
-    const result = buildScatterChartResult({
-      ...validScatterInput,
-      sizeKey: "profit",
-      range: [20, 4],
-    });
-
-    expect(result.isError).toBe(true);
-    expect(errorTextOf(result)).toContain("range");
-  });
-
-  it("range 最小值等於最大值時回傳 isError", () => {
-    const result = buildScatterChartResult({
-      ...validScatterInput,
-      sizeKey: "profit",
-      range: [10, 10],
-    });
-
-    expect(result.isError).toBe(true);
-  });
-
-  // 過大的氣泡會蓋住其他資料點；斷言引用常數而非字面值，
-  // 上限改動時錯誤訊息與測試才會一起跟進。
-  it("range 最大半徑超過上限時回傳 isError，訊息帶出上限", () => {
-    const result = buildScatterChartResult({
-      ...validScatterInput,
-      sizeKey: "profit",
-      range: [4, MAX_BUBBLE_RADIUS + 1],
-    });
-
-    expect(result.isError).toBe(true);
-    expect(errorTextOf(result)).toContain(String(MAX_BUBBLE_RADIUS));
-  });
-
-  it("range 最大半徑剛好等於上限時通過", () => {
-    const result = buildScatterChartResult({
-      ...validScatterInput,
-      sizeKey: "profit",
-      range: [4, MAX_BUBBLE_RADIUS],
-    });
-
-    expect(result.isError).toBeFalsy();
-  });
-
-  // 半徑 0 或負數畫不出可見的氣泡；schema 層即以 positive 擋下。
-  it.each([
-    ["零", [0, 12]],
-    ["負數", [-4, 12]],
-  ])("range 最小半徑為%s時回傳 isError", (_label, range) => {
-    const result = buildScatterChartResult({
-      ...validScatterInput,
-      sizeKey: "profit",
-      range,
-    });
-
-    expect(result.isError).toBe(true);
-  });
-
-  // 靜默忽略會讓 LLM 以為自己成功調了大小。
-  it("傳了 range 卻沒傳 sizeKey 時回傳 isError", () => {
-    const result = buildScatterChartResult({ ...validScatterInput, range: [4, 12] });
-
-    expect(result.isError).toBe(true);
-    const message = errorTextOf(result);
-    expect(message).toContain("range");
-    expect(message).toContain("sizeKey");
-  });
 });
 
 /**
@@ -749,7 +670,7 @@ describe("buildScatterChartResult 的維度標示欄位", () => {
 
   /**
    * sizeLabel / sizeUnit 描述的是氣泡這個維度，沒有 sizeKey 時沒有維度可描述。
-   * 同 range：明確回報而非靜默忽略，否則 LLM 會以為自己成功標了名稱。
+   * 明確回報而非靜默忽略，否則 LLM 會以為自己成功標了名稱。
    */
   it.each(["sizeLabel", "sizeUnit"])(
     "只傳 %s 卻沒傳 sizeKey 時回傳 isError",

@@ -4,7 +4,6 @@ import { render as baseRender, screen } from "@testing-library/react";
 import {
   axisLabel,
   bubbleAxisLabels,
-  bubbleRadiusAt,
   ChartCard,
   ChartPaletteProvider,
   formatAxisTick,
@@ -12,12 +11,7 @@ import {
   scatterLegendPayload,
   seriesColorAt,
 } from "./chart-card";
-import {
-  DEFAULT_BUBBLE_RADIUS_RANGE,
-  MAX_BUBBLE_RADIUS,
-  type ChartDefinition,
-  type ScatterChartDefinition,
-} from "@/lib/charts/chart-tool";
+import type { ChartDefinition, ScatterChartDefinition } from "@/lib/charts/chart-tool";
 
 /**
  * 圖表卡片的顏色來自 provider 供應的對照表，單獨渲染會讓每個類別都回退到第一色。
@@ -61,13 +55,31 @@ function chartRootClasses(container: HTMLElement) {
   );
 }
 
-// jsdom 的元素一律回報 0x0，ResponsiveContainer 量不到尺寸就不會渲染任何圖形。
-// 只覆寫 offsetWidth/offsetHeight（ResponsiveContainer 的量測來源），
-// 不動 getBoundingClientRect——那會連刻度文字的尺寸一起弄錯，反而讓版面算不出來。
+// jsdom 的元素一律回報 0x0，recharts 量不到尺寸就不會渲染任何圖形。
+//
+// `responsive` prop 的量測來源與遷移前的 `ResponsiveContainer` 不同：它讀的是
+// **包裹 div 的 `getBoundingClientRect()`**，再由 ResizeObserver 的 `contentRect`
+// 持續更新（見 recharts 的 `RechartsWrapper.js`），而不是 offsetWidth/offsetHeight。
+//
+// 「不動 getBoundingClientRect，那會連刻度文字的尺寸一起弄錯」這個判斷仍然成立，
+// 故這裡**只對 recharts 的包裹 div** 回報尺寸，其餘元素一律走原本的實作——
+// recharts 量刻度文字用的是掛在 body 上的一個隱藏 span（`DOMUtils.js` 的
+// measureTextWithDOM），整片覆寫會把它一起弄成 800×400，版面就算不出來了。
+//
+// ResizeObserver 假件仍需存在：recharts 只在它有定義時才進入量測分支。
 beforeAll(() => {
-  Object.defineProperty(HTMLElement.prototype, "offsetWidth", { value: 800, configurable: true });
-  Object.defineProperty(HTMLElement.prototype, "offsetHeight", { value: 400, configurable: true });
-  globalThis.ResizeObserver ??= class {
+  const originalGetRect = HTMLElement.prototype.getBoundingClientRect;
+  Object.defineProperty(HTMLElement.prototype, "getBoundingClientRect", {
+    configurable: true,
+    value: function (this: HTMLElement) {
+      if (!this.classList.contains("recharts-wrapper")) {
+        return originalGetRect.call(this);
+      }
+      return { ...originalGetRect.call(this), width: 800, height: 400 } as DOMRect;
+    },
+  });
+
+  globalThis.ResizeObserver = class {
     constructor(private readonly callback: ResizeObserverCallback) {}
     observe(target: Element) {
       this.callback(
@@ -753,16 +765,17 @@ describe("ChartCard 散佈圖", () => {
   });
 
   /**
-   * 契約的單位是半徑：range 的最大半徑須真的等於畫出來的最大氣泡半徑，
-   * 否則半徑→面積的換算就接錯了。symbol 的 width 即直徑。
+   * `ZAxis.range` 的單位是**面積**，recharts 內部以 `r = sqrt(size / π)` 反推半徑。
+   * 上界 1280 換算後的最大半徑約 20.2px——這條守著「面積→半徑」這個換算沒有接錯，
+   * 也守著範圍常數不被誤當成半徑改動。symbol 的 width 即直徑。
    */
-  it("最大氣泡的半徑等於 range 的最大值，不溢出繪圖區", () => {
+  it("最大氣泡的半徑等於面積上界換算出的半徑", () => {
     const { container } = render(
-      <ChartCard chart={{ ...scatterChart, sizeKey: "profit", range: [4, 20] }} />
+      <ChartCard chart={{ ...scatterChart, sizeKey: "profit" }} />
     );
     const maxRadius = Math.max(...bubbleWidthsOf(container)) / 2;
 
-    expect(maxRadius).toBeCloseTo(20);
+    expect(maxRadius).toBeCloseTo(Math.sqrt(1280 / Math.PI), 1);
   });
 
   /**
@@ -770,14 +783,12 @@ describe("ChartCard 散佈圖", () => {
    * recharts 的預設邊距是為線/柱設計的（它們不超出自己的資料點），對散佈圖不夠。
    * 溢出時圓會被 SVG 裁掉半邊，X 軸最後一個刻度也會被蓋住。
    *
-   * 上一條測試只驗半徑值本身等於 range 的最大值，驗不到它是否撞到邊界；
+   * 上一條測試只驗半徑值本身等於面積上界的換算結果，驗不到它是否撞到邊界；
    * 這條補上真正的幾何邊界檢查。
    */
   it("最右側的氣泡不超出繪圖區右緣", () => {
     const { container } = render(
-      <ChartCard
-        chart={{ ...scatterChart, sizeKey: "profit", range: [4, MAX_BUBBLE_RADIUS] }}
-      />
+      <ChartCard chart={{ ...scatterChart, sizeKey: "profit" }} />
     );
 
     // 繪圖區的範圍由格線的端點界定：recharts 不渲染 grid 的 rect，
@@ -801,67 +812,6 @@ describe("ChartCard 散佈圖", () => {
       expect(cy - r).toBeGreaterThanOrEqual(0);
       expect(cy + r).toBeLessThanOrEqual(plotBottom);
     }
-  });
-
-  it("未提供 range 時套用預設的最大半徑 12", () => {
-    const { container } = render(
-      <ChartCard chart={{ ...scatterChart, sizeKey: "profit" }} />
-    );
-    const maxRadius = Math.max(...bubbleWidthsOf(container)) / 2;
-
-    expect(maxRadius).toBeCloseTo(DEFAULT_BUBBLE_RADIUS_RANGE[1]);
-  });
-
-  /**
-   * 最小氣泡的半徑須等於 range 的最小值——即使資料不含 0。
-   * recharts 內建映射固定從 0 起算，資料從 10 起算時最小氣泡實測 13.87 而非 6
-   * （issue #69 案例 B）。這條測試守著「起算點是 dataMin」這個修正。
-   */
-  it("最小氣泡的半徑等於 range 的最小值，即使資料不含 0", () => {
-    const { container } = render(
-      <ChartCard
-        chart={{
-          ...scatterChart,
-          data: [
-            { price: 10, sales: 100, profit: 10 },
-            { price: 20, sales: 200, profit: 100 },
-          ],
-          sizeKey: "profit",
-          range: [6, MAX_BUBBLE_RADIUS],
-        }}
-      />
-    );
-    const radii = bubbleWidthsOf(container).map((w) => w / 2);
-
-    expect(Math.min(...radii)).toBeCloseTo(6);
-    expect(Math.max(...radii)).toBeCloseTo(MAX_BUBBLE_RADIUS);
-  });
-
-  /**
-   * 只測兩端點抓不到 issue #69 的壓縮現象——面積線性下兩端點也是對的，
-   * 錯的是中段。故取均勻分布的資料，檢查中間那一顆確實落在 0.75 次方曲線上。
-   */
-  it("均勻分布的資料，中段氣泡不擠在高值區", () => {
-    const { container } = render(
-      <ChartCard
-        chart={{
-          ...scatterChart,
-          data: [
-            { price: 10, sales: 100, profit: 0 },
-            { price: 20, sales: 200, profit: 50 },
-            { price: 30, sales: 300, profit: 100 },
-          ],
-          sizeKey: "profit",
-          range: [6, 30],
-        }}
-      />
-    );
-    const radii = bubbleWidthsOf(container)
-      .map((w) => w / 2)
-      .sort((a, b) => a - b);
-
-    // 0.75 次方：6 + 0.5^0.75 * 24 = 20.27。面積線性會是 22.97，半徑線性 18.00。
-    expect(radii[1]).toBeCloseTo(6 + 0.5 ** 0.75 * 24, 1);
   });
 
   // 兩軸單位接在刻度後面，讀者不必 hover 就讀得出這個維度是什麼。
@@ -953,62 +903,6 @@ describe("scatterLegendPayload", () => {
 });
 
 /**
- * 半徑映射單獨測試：jsdom 不產生 SVG 幾何，此換算在渲染斷言中驗不到。
- * 兩個缺陷各有一條測試守著——曲線指數與起算點。詳見 docs/adr/0005。
- */
-describe("bubbleRadiusAt", () => {
-  // 兩端點必須恰好落在契約宣稱的 range 上，否則「最小/最大半徑」是在說謊。
-  it("資料兩端點恰好對應 range 的兩端", () => {
-    expect(bubbleRadiusAt(10, [10, 100], [6, 40])).toBeCloseTo(6);
-    expect(bubbleRadiusAt(100, [10, 100], [6, 40])).toBeCloseTo(40);
-  });
-
-  /**
-   * 起算點是 dataMin 而非 0：recharts 內建映射固定從 0 起算，資料不含 0 時
-   * 最小半徑永遠取不到（issue #69 案例 B 實測 13.87 而非 6）。
-   */
-  it("起算點為資料最小值而非 0", () => {
-    // 資料 [10, 100] 的中點 55 若從 0 起算，正規化值會是 0.55 而非 0.5。
-    const fromDataMin = bubbleRadiusAt(55, [10, 100], [6, 40]);
-    const fromZero = bubbleRadiusAt(55, [0, 100], [6, 40]);
-
-    expect(fromDataMin).not.toBeCloseTo(fromZero);
-    expect(fromDataMin).toBeCloseTo(6 + 0.5 ** 0.75 * 34, 2);
-  });
-
-  /**
-   * 曲線指數 0.75：中段既不擠在高值區（面積線性 `^0.5` 的問題），
-   * 也不是純半徑線性（`^1`）。issue #69 案例 C 的驗收數字。
-   */
-  it("中間值依 0.75 次方曲線落在 26.22（案例 C）", () => {
-    expect(bubbleRadiusAt(50, [0, 100], [6, 40])).toBeCloseTo(26.22, 1);
-  });
-
-  // 對照組：確認實作既不是面積線性也不是半徑線性，而是兩者之間。
-  it("中間值落在半徑線性與面積線性之間", () => {
-    const actual = bubbleRadiusAt(50, [0, 100], [6, 40]);
-    const radiusLinear = 6 + 0.5 * 34; // 23.00
-    const areaLinear = 6 + 0.5 ** 0.5 * 34; // 30.04
-
-    expect(actual).toBeGreaterThan(radiusLinear);
-    expect(actual).toBeLessThan(areaLinear);
-  });
-
-  it("未提供 range 時套用預設的 [4, 12]", () => {
-    expect(bubbleRadiusAt(0, [0, 100])).toBeCloseTo(DEFAULT_BUBBLE_RADIUS_RANGE[0]);
-    expect(bubbleRadiusAt(100, [0, 100])).toBeCloseTo(DEFAULT_BUBBLE_RADIUS_RANGE[1]);
-  });
-
-  /**
-   * 資料值全部相同時沒有可分辨的大小差異，一律取最小半徑：
-   * 取最大半徑會讓一組毫無差異的資料畫出滿版的氣泡，暗示不存在的高值。
-   */
-  it("資料值全部相同時取最小半徑", () => {
-    expect(bubbleRadiusAt(7, [7, 7], [6, 40])).toBe(6);
-  });
-});
-
-/**
  * 氣泡維度的 Tooltip 標示單獨測試：`ZAxis` 不渲染任何 DOM，這兩個值在渲染
  * 斷言中驗不到。`sizeUnit` 是三個單位裡唯一沒有刻度可依附的——接錯了畫面上
  * 看不出來，只能在這裡守住。
@@ -1038,9 +932,9 @@ describe("bubbleAxisLabels", () => {
 });
 
 /**
- * 軸標題單獨測試：jsdom 下 `ResponsiveContainer` 量到寬度 0，recharts 因此
- * 完全不渲染軸標題（刻度與資料點仍會畫），這在渲染斷言中驗不到。實際版面已在
- * 瀏覽器中確認：兩軸標題各就各位、中文不斷行、圖例排在 X 軸標題下方。
+ * 軸標題單獨測試：jsdom 下量不到文字尺寸，recharts 因此完全不渲染軸標題
+ * （刻度與資料點仍會畫），這在渲染斷言中驗不到。實際版面已在瀏覽器中確認：
+ * 兩軸標題各就各位、中文不斷行、圖例移進繪圖區左上角後不與標題相撞（issue #73）。
  */
 describe("axisLabel", () => {
   it("未提供時不產生標題", () => {

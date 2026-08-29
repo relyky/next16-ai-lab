@@ -17,27 +17,6 @@ export type CartesianChartType = "line" | "bar" | "area";
 const MAX_DATA_ROWS = 100;
 const MAX_SERIES = 6;
 
-/**
- * 氣泡半徑上限（px）。
- *
- * 圖表容器高度固定、繪圖區約 180–200px。原訂 40（直徑 80px）實測在 20 筆資料下
- * 氣泡會互相吞沒、糊成一片；30 仍足以表達差異而不至於蓋掉鄰近的點。
- * 與資料列數／數列數上限是同一種東西——避免 LLM 產生過大的值拖垮圖表可讀性。
- * 詳見 docs/adr/0005。
- *
- * 與 DEFAULT_BUBBLE_RADIUS_RANGE 一同匯出：這兩個值同時出現在 schema 的
- * describe、執行期檢查、tool 描述與前端換算四處，散成字面值會在改動時漏改，
- * 而 tool 描述正是這條契約對 LLM 唯一可見的落點（ADR 0003）。
- */
-export const MAX_BUBBLE_RADIUS = 30;
-
-/**
- * 未提供 range 時前端套用的預設半徑範圍（px）；換算後與 recharts 自身的預設同一量級。
- *
- * 定義在此而非前端：tool 描述必須明文寫出這個預設值，LLM 才知道未傳時會發生什麼。
- */
-export const DEFAULT_BUBBLE_RADIUS_RANGE: readonly [number, number] = [4, 12];
-
 const HEX_COLOR = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 
 const seriesSchema = z.object({
@@ -252,19 +231,6 @@ export const scatterChartInputShape = {
     .min(1)
     .optional()
     .describe("氣泡大小的單位，顯示於 Tooltip 的氣泡數值後（如「萬元」）"),
-  /**
-   * 氣泡半徑範圍（px），單位是**半徑**而非 recharts 的面積。
-   *
-   * 面積在感知上正確，但數字極不直觀；契約收半徑讓 LLM 拿到直覺會用對的單位，
-   * 易錯的換算被鎖在前端一個具名純函式裡。詳見 docs/adr/0005。
-   */
-  range: z
-    .tuple([z.number().positive(), z.number().positive()])
-    .optional()
-    .describe(
-      `氣泡的 [最小半徑, 最大半徑]（px），最大半徑上限 ${MAX_BUBBLE_RADIUS}；` +
-        "須與 sizeKey 同時提供，未提供時前端套用預設值"
-    ),
 };
 
 /** strict：誤把餅圖或雷達圖的欄位傳進來時直接被驗證擋下。 */
@@ -572,21 +538,20 @@ export function buildScatterChartResult(input: unknown): ChartToolResult {
   const parsed = parseOrError(scatterChartInputSchema, input);
   if (!parsed.ok) return parsed.error;
 
-  const { data, xKey, series, sizeKey, sizeLabel, sizeUnit, range } = parsed.value;
+  const { data, xKey, series, sizeKey, sizeLabel, sizeUnit } = parsed.value;
 
   const missingKeys = findMissingCategoryAndSeriesKeys(parsed.value, xKey);
   if (missingKeys) return missingKeys;
 
   // 參數組合的檢查排在逐列掃描之前：兩者都錯時，先回報成本較低的那個，LLM 少一輪往返。
   //
-  // range / sizeLabel / sizeUnit 三者都只描述「氣泡大小」這個維度，沒有 sizeKey
-  // 時就沒有維度可描述。三條是同一條規則，故走同一張表而非各寫各的 if——
+  // sizeLabel / sizeUnit 兩者都只描述「氣泡大小」這個維度，沒有 sizeKey
+  // 時就沒有維度可描述。兩條是同一條規則，故走同一張表而非各寫各的 if——
   // 日後再加一個氣泡相關的選填欄位，只需多一列。
   //
   // 明確回報而非靜默忽略：靜默忽略會讓 LLM 以為自己成功調了大小或標了名稱，
   // 它拿不到任何訊號，也就不會重試。
   const bubbleOnlyFields = [
-    ["range", range, "沒有可映射的欄位"],
     ["sizeLabel", sizeLabel, "沒有氣泡大小這個維度可標示"],
     ["sizeUnit", sizeUnit, "沒有氣泡大小這個維度可標示"],
   ] as const;
@@ -609,23 +574,6 @@ export function buildScatterChartResult(input: unknown): ChartToolResult {
             "散佈圖的 X 軸與各數列欄位每一列都必須是數值"
         );
       }
-    }
-  }
-
-  if (range !== undefined) {
-    const [min, max] = range;
-    // 傳反了會畫出「大值畫小、小值畫大」——一張看起來正常但語意相反的圖。
-    if (min >= max) {
-      return toolError(
-        `range 的最小半徑 ${min} 不小於最大半徑 ${max}；` +
-          "須為 [最小半徑, 最大半徑]，否則大值會被畫成小氣泡"
-      );
-    }
-    if (max > MAX_BUBBLE_RADIUS) {
-      return toolError(
-        `range 的最大半徑 ${max} 超過上限 ${MAX_BUBBLE_RADIUS}；` +
-          "過大的氣泡會蓋住其他資料點"
-      );
     }
   }
 

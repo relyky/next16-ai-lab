@@ -1,77 +1,87 @@
 "use client";
 
 /**
- * 散佈圖樣板：charts-tpl 的實驗場元件。
+ * 散佈圖樣板：驗證正式元件 `ChartCard` 的散佈圖在真實瀏覽器裡的結果。
  *
- * 目的是在乾淨的環境裡試 recharts 3.x 的新 API，驗證後再回頭改 chart-card.tsx。
- * 目前正在試的：
- * - `responsive` prop（取代 chart-card 仍在用的 ResponsiveContainer）
- * - `YAxis width="auto"`
- * - `Legend position="insideTopLeft"`（舊的 verticalAlign/align 已標記 deprecated）
+ * 本樣板原本渲染的是裸 recharts 元件，用來試 recharts 3.x 的三個新寫法
+ * （`responsive`、`YAxis width="auto"`、`Legend position`）。三項實驗都已收編進
+ * `chart-card.tsx`，樣板的任務因此改變：從「試新 API」變成「驗證正式元件」。
  *
- * 資料先寫死，把心中的圖表樣貌跑出來優先；參數化之後再說。
+ * jsdom 驗不到版面重疊，只有瀏覽器看得出來的三件事在這裡複核（issue #73）：
+ * - `insideTopLeft` 的圖例是否遮住左上角的資料點
+ * - 氣泡大小差異是否可辨識——改用 `ZAxis.range` 後中段氣泡會擠在高值區，
+ *   見 docs/adr/0005 的「後續修正」一節
+ * - 軸標題與刻度、圖例是否互相重疊
+ *
+ * **必須包在 `ChartPaletteProvider` 裡**：少了它 `useChartPalette()` 回傳空 Map，
+ * 每個數列都回退第一個顏色，畫出來會是同色的點——看起來很像著色壞掉，
+ * 其實是這層漏掉了。與 `pie-chart-tpl.tsx` 同一個陷阱。
+ *
+ * 兩張圖各自驗一條路徑：
+ * - 上：有 sizeKey，單一數列——驗氣泡大小差異與圖例的「大小」項
+ * - 下：多數列、無 sizeKey——驗配色與圖例的數列項
  */
-import {
-  CartesianGrid,
-  LabelList,
-  Legend,
-  Scatter,
-  ScatterChart,
-  Tooltip,
-  XAxis,
-  YAxis,
-  ZAxis,
-} from "recharts";
+import { ChartCard, ChartPaletteProvider } from "@/components/chart-card";
+import type { ChartDefinition } from "@/lib/charts/chart-tool";
 
-const SCHOOL_A = [
-  { x: 100, y: 200, z: 200 },
-  { x: 50, y: 50, z: 100 },
-  { x: 75, y: 75, z: 900 },
-  { x: 120, y: 100, z: 260 },
-  { x: 170, y: 300, z: 400 },
-  { x: 140, y: 250, z: 280 },
-  { x: 150, y: 400, z: 500 },
-  { x: 110, y: 280, z: 200 },
-];
+/**
+ * 氣泡路徑：z 值刻意由 100 到 900 跨接近一個數量級，
+ * 中段（260、280）與高段（400、500）的差異讀不讀得出來，正是本票要看的。
+ */
+const STATURE_WEIGHT: ChartDefinition = {
+  type: "scatter",
+  title: "身高與體重（氣泡大小為樣本數）",
+  data: [
+    { stature: 100, weight: 200, samples: 200 },
+    { stature: 50, weight: 50, samples: 100 },
+    { stature: 75, weight: 75, samples: 900 },
+    { stature: 120, weight: 100, samples: 260 },
+    { stature: 170, weight: 300, samples: 400 },
+    { stature: 140, weight: 250, samples: 280 },
+    { stature: 150, weight: 400, samples: 500 },
+    { stature: 110, weight: 280, samples: 200 },
+  ],
+  xKey: "stature",
+  xLabel: "身高",
+  xUnit: "cm",
+  yLabel: "體重",
+  yUnit: "kg",
+  series: [{ key: "weight", label: "A 校" }],
+  sizeKey: "samples",
+  sizeLabel: "樣本數",
+  sizeUnit: "人",
+};
 
-const SCHOOL_B = [
-  { x: 75, y: 200, z: 200 },
-  { x: 150, y: 150, z: 100 },
-  { x: 200, y: 75, z: 900 },
-];
+// 多數列路徑：兩個數列各自取一色，圖例列出兩項——沒有 sizeKey，
+// 故圖例不應出現「大小」那一項。左上角的點刻意密集，用來看圖例是否遮擋。
+const TWO_SCHOOLS: ChartDefinition = {
+  type: "scatter",
+  title: "兩校身高與體重（多數列配色）",
+  data: [
+    { stature: 50, a: 50, b: 60 },
+    { stature: 75, a: 75, b: 200 },
+    { stature: 100, a: 200, b: 150 },
+    { stature: 150, a: 400, b: 150 },
+    { stature: 200, a: 280, b: 75 },
+  ],
+  xKey: "stature",
+  xLabel: "身高",
+  xUnit: "cm",
+  yLabel: "體重",
+  yUnit: "kg",
+  series: [
+    { key: "a", label: "A 校" },
+    { key: "b", label: "B 校" },
+  ],
+};
 
 export function ScatterChartTpl() {
   return (
-    <ScatterChart
-      style={{ width: "100%", maxWidth: "700px", maxHeight: "70vh", aspectRatio: 1 }}
-      responsive
-      margin={{ top: 20, right: 20, bottom: 10, left: 10 }}
-    >
-      <CartesianGrid />
-      <XAxis
-        type="number"
-        dataKey="x"
-        name="stature"
-        unit="cm"
-        label={{ value: "stature", position: "insideBottom", offset: -10 }}
-      />
-      <YAxis
-        type="number"
-        dataKey="y"
-        name="weight"
-        unit="kg"
-        width="auto"
-        label={{ value: "weight", angle: -90, position: "insideLeft" }}
-      />
-      <ZAxis type="number" dataKey="z" range={[64, 1280]} />
-      <Tooltip />
-      <Legend position="insideTopLeft" layout="vertical" offset={8} />
-      <Scatter name="A school" data={SCHOOL_A} fill="lightgreen">
-        <LabelList dataKey="z" />
-      </Scatter>
-      <Scatter name="B school" data={SCHOOL_B} fill="cyan">
-        <LabelList dataKey="z" />
-      </Scatter>
-    </ScatterChart>
+    <ChartPaletteProvider charts={[STATURE_WEIGHT, TWO_SCHOOLS]}>
+      <div className="flex flex-col gap-4">
+        <ChartCard chart={STATURE_WEIGHT} />
+        <ChartCard chart={TWO_SCHOOLS} />
+      </div>
+    </ChartPaletteProvider>
   );
 }

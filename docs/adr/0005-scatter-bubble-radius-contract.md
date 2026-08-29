@@ -72,3 +72,24 @@ recharts 的內建映射把 `[0, dataMax]` 映到 `range`，起點固定為 0。
 **上限與預設值只定義一次。** 兩者同時出現在 schema 的 describe、執行期檢查、tool 描述與前端換算四處。散成字面值會在改動時漏改，而 tool 描述正是這條契約對 LLM 唯一可見的落點——描述說 40、檢查擋在 30，LLM 會反覆撞上一道它讀不到的牆。故 `MAX_BUBBLE_RADIUS` 與 `DEFAULT_BUBBLE_RADIUS_RANGE` 定義於 `chart-tool.ts` 並由其餘三處引用。
 
 **`sizeKey` 與 `range` 的用法必須寫進 tool 的描述。** 選填欄位的說明只存在於巢狀 JSON Schema 的 property description 裡，LLM 未必讀得到——ADR 0003 已記錄這個問題。氣泡大小是散佈圖相對於其他圖表最有價值的部分，若 LLM 從不主動使用，等於沒做。
+
+## 後續修正：改採 recharts 內建 `ZAxis.range`（issue #70、#71）
+
+**本文件以上的內容一字未改**——它記錄的是當時的決策脈絡，這一節是追加而非改寫。
+
+散佈圖的氣泡幾何已改用 recharts 內建的 `ZAxis.range`，固定填 `[64, 1280]`（單位是面積）。`bubbleRadiusAt`、`BUBBLE_RADIUS_EXPONENT` 與自訂的 `shape` renderer 全數移除。
+
+**契約的 `range` 欄位一併移除。** 前端改用固定值之後，`range` 變成「驗證得過但沒有任何效果」——LLM 傳了會收到成功回應，畫面卻毫無變化。這正是本文件〈有 `range` 無 `sizeKey` 回報錯誤，而非靜默忽略〉一節明文反對的情形，故不留在 schema 裡。`MAX_BUBBLE_RADIUS` 與 `DEFAULT_BUBBLE_RADIUS_RANGE` 隨之刪除。
+
+### 代價：兩個缺陷重新出現
+
+本文件記錄並修正的兩個缺陷都回來了，這是**知情的取捨**而非疏漏：
+
+- **中段壓縮。** 面積線性（半徑 ∝ 值的 0.5 次方）把中段往高值推，0.75 次方曲線解決的正是這件事。
+- **起算點固定為 0。** recharts 內建映射不從 dataMin 起算，資料不含 0 時最小氣泡取不到範圍的下界。
+
+守著這兩點的三條測試（`bubbleRadiusAt` 整個 describe、「最小氣泡的半徑等於 range 的最小值」、「均勻分布的資料，中段氣泡不擠在高值區」）因此一併移除。
+
+### 理由
+
+向 charts-tpl（`src/app/charts-tpl/scatter-chart-tpl.tsx`）實機驗證過的 recharts 原生寫法收斂，減少與函式庫對抗的自訂幾何。本文件〈被否決的替代方案〉曾以「合適的氣泡範圍與資料的離散程度有關」否決寫死常數；該論點依然成立，代價已如上記錄。第三個維度在實際資料下是否仍讀得出來，由 charts-tpl 樣板以人眼複核（issue #73）。

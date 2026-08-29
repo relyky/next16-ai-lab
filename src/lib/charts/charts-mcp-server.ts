@@ -20,9 +20,7 @@ import {
   buildPieChartResult,
   buildRadarChartResult,
   buildScatterChartResult,
-  DEFAULT_BUBBLE_RADIUS_RANGE,
   lineChartInputShape,
-  MAX_BUBBLE_RADIUS,
   pieChartInputShape,
   radarChartInputShape,
   scatterChartInputShape,
@@ -92,7 +90,7 @@ export const radarChartTool = tool(
 /**
  * 散佈圖：兩個數值變數的分布與相關性，外加選填的氣泡大小維度。
  *
- * `sizeKey` 與 `range` 的用法必須寫進**描述**而不是只寫在欄位的 describe 裡：
+ * `sizeKey` 的用法必須寫進**描述**而不是只寫在欄位的 describe 裡：
  * 選填欄位的說明只存在於巢狀 JSON Schema 的 property description 中，LLM 未必
  * 讀得到（ADR 0003 已記錄此問題）。氣泡大小是本功能最有價值的部分，
  * 若 LLM 從不主動使用，等於沒做。
@@ -112,10 +110,7 @@ export const scatterChartTool = tool(
     "各點會依該值畫成大小不同的氣泡；未提供 sizeKey 時所有點大小相同。" +
     "氣泡大小沒有軸刻度可依附，它在圖例上自成一項，" +
     "名稱取選填的 sizeLabel（未提供時用 sizeKey），單位取選填的 sizeUnit（顯示於 Tooltip）；" +
-    "兩者皆須與 sizeKey 同時提供。" +
-    `選填的 range 是氣泡的 [最小半徑, 最大半徑]（單位 px，最大半徑上限 ${MAX_BUBBLE_RADIUS}），` +
-    `未提供時前端套用預設 [${DEFAULT_BUBBLE_RADIUS_RANGE.join(", ")}]；` +
-    "range 須與 sizeKey 同時提供。",
+    "兩者皆須與 sizeKey 同時提供。",
   scatterChartInputShape,
   async (args) => buildScatterChartResult(args)
 );

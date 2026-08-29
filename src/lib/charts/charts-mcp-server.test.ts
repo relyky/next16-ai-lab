@@ -49,7 +49,7 @@ function asPieToolArgs(args: Record<string, unknown>) {
 }
 
 /**
- * 散佈圖版的同款 helper：`sizeKey` / `range` 選填，但 handler 的參數型別
+ * 散佈圖版的同款 helper：`sizeKey` 選填，但 handler 的參數型別
  * 把選填欄位表述為「必填但可為 undefined」，實際呼叫時仍可省略。
  */
 function asScatterToolArgs(args: Record<string, unknown>) {
@@ -183,7 +183,7 @@ describe("charts MCP server", () => {
 
 /**
  * 散佈圖：氣泡大小是本功能最有價值的部分，而選填欄位的說明只存在於巢狀
- * JSON Schema 的 property description 裡（ADR 0003）。故 sizeKey 與 range
+ * JSON Schema 的 property description 裡（ADR 0003）。故 sizeKey
  * 的用法必須寫進 tool 的**描述**，否則 LLM 從不主動使用，等於沒做。
  */
 describe("scatter tool", () => {
@@ -205,11 +205,6 @@ describe("scatter tool", () => {
     expect(scatterChartTool.description).toContain("sizeKey");
     expect(scatterChartTool.description).toContain("非負");
     expect(scatterChartTool.description).toContain("所有點大小相同");
-  });
-
-  it("描述明文寫出 range 為半徑範圍及未提供時的預設值", () => {
-    expect(scatterChartTool.description).toContain("半徑");
-    expect(scatterChartTool.description).toContain("[4, 12]");
   });
 
   it("呼叫 scatter_chart tool 回傳 type 為 scatter 的圖表定義 JSON", async () => {

@@ -146,10 +146,10 @@ describe("charts MCP server 經真實 MCP client 呼叫", () => {
 
 /**
  * 氣泡能力對 LLM 唯一可見的落點就是 inputSchema——只有走完整協定拿到它才驗得到。
- * schema 少了 sizeKey 或 range，氣泡大小就等於不存在。
+ * schema 少了 sizeKey，氣泡大小就等於不存在。
  */
 describe("scatter_chart 經真實 MCP client 呼叫", () => {
-  it("inputSchema 含 sizeKey 與 range", async () => {
+  it("inputSchema 含 sizeKey", async () => {
     const client = await connect();
     const found = (await client.listTools()).tools.find((t) => t.name === "scatter_chart");
     const properties = found?.inputSchema.properties as
@@ -157,7 +157,6 @@ describe("scatter_chart 經真實 MCP client 呼叫", () => {
       | undefined;
 
     expect(properties).toHaveProperty("sizeKey");
-    expect(properties).toHaveProperty("range");
     expect(properties).toHaveProperty("xKey");
   });
 
@@ -171,7 +170,6 @@ describe("scatter_chart 經真實 MCP client 呼叫", () => {
       xKey: "price",
       series: [{ key: "sales" }],
       sizeKey: "profit",
-      range: [4, 20],
     };
     const r = (await client.callTool({
       name: "scatter_chart",

@@ -177,7 +177,6 @@ describe("createChartExtractor 新增的圖表類型", () => {
       xKey: "price",
       series: [{ key: "sales" }],
       sizeKey: "profit",
-      range: [4, 20] as [number, number],
     };
 
     extract(toolUse("t-1", "mcp__charts__scatter_chart"));
