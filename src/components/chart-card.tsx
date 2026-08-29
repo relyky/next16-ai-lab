@@ -433,7 +433,7 @@ export function axisLabel(value: string | undefined, axis: "x" | "y") {
  * （實測三數列 甲乙丙 → 丙乙甲），與 `series` 的宣告順序、以及配色對照表的
  * 取色順序都對不上，讀者會把圖例的第一項對到畫面上的另一個顏色。
  *
- * 曾另有一項「大小：{sizeLabel}」標示氣泡維度（ADR 0006），已依需求移除；
+ * 曾另有一項「大小：{sizeLabel}」標示氣泡維度（見 docs/adr/0007-scatter-static-dimension-labels.md），已依需求移除；
  * `sizeLabel` / `sizeUnit` 改由 Tooltip 單獨承載。
  *
  * 匯出並單獨測試：圖例項目的組成規則不必渲染整張圖就能驗。
@@ -473,9 +473,9 @@ export function bubbleAxisLabels(chart: ScatterChartDefinition) {
  * 故 1280 換算後的最大半徑約 20.2px、64 的最小半徑約 4.5px。
  *
  * 兩個數值取自 charts-tpl 的實機驗證（`src/app/charts-tpl/scatter-chart-tpl.tsx`），
- * 不參數化：改用函式庫內建的映射，正是為了不再自訂氣泡幾何。這放棄了
- * docs/adr/0005 曾修正的兩個缺陷（中段壓縮、起算點固定為 0），屬知情取捨，
- * 詳見該文件的「後續修正」一節。
+ * 不參數化：改用函式庫內建的映射，正是為了不再自訂氣泡幾何。代價是接受兩個
+ * 缺陷——中段壓縮（面積線性把中段往高值推）與起算點固定為 0（資料不含 0 時
+ * 最小氣泡取不到下界），屬知情取捨。
  */
 const BUBBLE_AREA_RANGE: readonly [number, number] = [64, 1280];
 
@@ -485,7 +485,6 @@ const BUBBLE_AREA_RANGE: readonly [number, number] = [64, 1280];
  * 由 `BUBBLE_AREA_RANGE` 推導而非寫死：兩者散成各自的字面值會在改動時漏改，
  * 而這個值同時決定了繪圖區的邊距（見下方 `SCATTER_CHART_MARGIN`）——
  * 邊距若小於半徑，端點的氣泡就會被 SVG 裁掉半邊。
- * 這條「只定義一次」的理由與 docs/adr/0005 對 MAX_BUBBLE_RADIUS 的處理相同。
  */
 const MAX_BUBBLE_RADIUS = Math.sqrt(BUBBLE_AREA_RANGE[1] / Math.PI);
 
@@ -558,7 +557,7 @@ function ScatterChartView({ chart }: { chart: ScatterChartDefinition }) {
       {/*
         散佈圖一律顯示圖例，單一數列也不例外。折線圖／長條圖的「單一數列不顯示」
         成立於它們的 X 軸把類別名稱寫在刻度上，Y 軸語意由該脈絡撐住；散佈圖兩軸
-        都是裸數字，沒有脈絡可倚靠，單一數列正是最需要圖例的情境。詳見 docs/adr/0006。
+        都是裸數字，沒有脈絡可倚靠，單一數列正是最需要圖例的情境。詳見 docs/adr/0007-scatter-static-dimension-labels.md。
       */}
       {/*
         `position` + `layout` 取代已棄用的 `verticalAlign` / `align`。圖例移進繪圖區

@@ -591,7 +591,7 @@ describe("buildScatterChartResult", () => {
 /**
  * 氣泡大小：散佈圖相對於其他圖表的獨特價值。
  * 氣泡幾何由前端固定的 `ZAxis.range` 承擔，契約只收 `sizeKey` 與它的標示欄位，
- * 不再開放呼叫端調整大小範圍——詳見 docs/adr/0005 的「後續修正」一節。
+ * 不再開放呼叫端調整大小範圍。
  */
 describe("buildScatterChartResult 的氣泡大小", () => {
   it("提供 sizeKey 時如實帶入圖表定義", () => {

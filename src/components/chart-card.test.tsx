@@ -894,7 +894,7 @@ describe("CHART_KIND_LABEL", () => {
 /**
  * 圖例只列各數列，不再有「大小」那一項。
  *
- * 該項曾是氣泡維度唯一的靜態標示管道（ADR 0006），已依需求移除。這裡守著
+ * 該項曾是氣泡維度唯一的靜態標示管道（見 docs/adr/0007-scatter-static-dimension-labels.md），已依需求移除。這裡守著
  * 「大小項不會回來」與「順序與 series 一致」兩件事——後者不是白守的：
  * recharts 原生收集出來的圖例是反序的，順序全靠自組 payload 撐住。
  */

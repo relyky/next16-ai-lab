@@ -180,7 +180,7 @@ export const scatterChartInputShape = {
    * Y 軸單位採**頂層 `yUnit`** 而非 `series[].unit`：Y 軸刻度只能顯示一種單位，
    * 掛在數列上會允許「多數列各自宣稱不同單位」這種畫不出來的組合。
    *
-   * 三者皆選填，未提供時該軸刻度維持純數字。詳見 docs/adr/0006。
+   * 三者皆選填，未提供時該軸刻度維持純數字。詳見 docs/adr/0007-scatter-static-dimension-labels.md。
    */
   xUnit: z.string().min(1).optional().describe("X 軸的單位，接在刻度數值後（如「元」）"),
   yUnit: z.string().min(1).optional().describe("Y 軸的單位，接在刻度數值後（如「千件」）"),
@@ -216,7 +216,7 @@ export const scatterChartInputShape = {
    * 氣泡大小這個維度在 Tooltip 上的顯示名稱與單位。
    *
    * 氣泡大小是三個維度中唯一沒有軸刻度可依附的。它曾在圖例區自成一項
-   * 「大小：{sizeLabel ?? sizeKey}」（ADR 0006），該項已移除，兩者改由 Tooltip
+   * 「大小：{sizeLabel ?? sizeKey}」（見 docs/adr/0007-scatter-static-dimension-labels.md），該項已移除，兩者改由 Tooltip
    * 單獨承載。`sizeLabel` 未提供時回退 `sizeKey`，與 `series[].label` 的既有模式一致。
    *
    * 兩者皆選填，且只在提供 `sizeKey` 時有意義。

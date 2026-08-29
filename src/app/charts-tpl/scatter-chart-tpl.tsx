@@ -9,8 +9,7 @@
  *
  * jsdom 驗不到版面重疊，只有瀏覽器看得出來的三件事在這裡複核（issue #73）：
  * - `insideTopLeft` 的圖例是否遮住左上角的資料點
- * - 氣泡大小差異是否可辨識——改用 `ZAxis.range` 後中段氣泡會擠在高值區，
- *   見 docs/adr/0005 的「後續修正」一節
+ * - 氣泡大小差異是否可辨識——改用 `ZAxis.range` 後中段氣泡會擠在高值區
  * - 軸標題與刻度、圖例是否互相重疊
  *
  * **必須包在 `ChartPaletteProvider` 裡**：少了它 `useChartPalette()` 回傳空 Map，
