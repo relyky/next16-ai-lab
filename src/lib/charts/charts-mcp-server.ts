@@ -100,6 +100,9 @@ export const scatterChartTool = tool(
   "把查到的資料轉成散佈圖定義，適合觀察兩個數值變數之間的分布與相關性。" +
     "xKey 指定作為 X 軸的欄位，series 指定作為 Y 軸的數值欄位；" +
     "X 軸與各數列 key 都必須是數值欄位（可為負數），非數值會被拒絕。" +
+    "要比較多個族群（如 B2B／B2C／經銷商）時，**每個族群各佔 data 的一個欄位**，" +
+    "series 再各指向自己的欄位；多組數列共用同一個欄位會被拒絕——" +
+    "那畫出來是幾組完全重疊的點，看起來只有一組。" +
     "配色以每組數列一色：可於 series[].color 傳 hex 色碼指定；未提供時前端套用預設配色。" +
     "散佈圖兩軸都是裸數字，讀者無法從刻度看出畫的是什麼——" +
     "務必傳選填的 xLabel 與 yLabel 為兩軸命名（如「產品售價」「月銷量」），" +
@@ -108,8 +111,8 @@ export const scatterChartTool = tool(
     "未提供時刻度維持純數字。" +
     "要在同一張圖上多讀一個維度時，用選填的 sizeKey 指向一個非負數值欄位，" +
     "各點會依該值畫成大小不同的氣泡；未提供 sizeKey 時所有點大小相同。" +
-    "氣泡大小沒有軸刻度可依附，它在圖例上自成一項，" +
-    "名稱取選填的 sizeLabel（未提供時用 sizeKey），單位取選填的 sizeUnit（顯示於 Tooltip）；" +
+    "氣泡大小沒有軸刻度可依附，其名稱與單位靠 Tooltip 呈現：" +
+    "名稱取選填的 sizeLabel（未提供時用 sizeKey），單位取選填的 sizeUnit；" +
     "兩者皆須與 sizeKey 同時提供。",
   scatterChartInputShape,
   async (args) => buildScatterChartResult(args)

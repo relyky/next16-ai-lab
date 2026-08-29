@@ -97,6 +97,29 @@ describe("笛卡兒圖轉換函式", () => {
     expect(errorTextOf(result)).toContain("series");
   });
 
+  /**
+   * 兩組數列指向同一個欄位時，畫出來是幾條完全重疊的線——後面蓋住前面，
+   * 看起來只有一組，圖例卻列出好幾個名稱。前端還會撞上 React 的重複 key
+   * （`key={s.key}`）而整張圖不渲染。
+   *
+   * 這條規則寫在 `findMissingCategoryAndSeriesKeys` 裡，五種多數列圖表共用，
+   * 故笛卡兒圖驗過即代表雷達圖也受保護（散佈圖另有一條，見該 describe）。
+   */
+  it("series 的欄位重複時回傳 isError，訊息指出重複的欄位", () => {
+    const result = buildLineChartResult({
+      ...validInput,
+      series: [
+        { key: "revenue", label: "甲" },
+        { key: "revenue", label: "乙" },
+      ],
+    });
+
+    expect(result.isError).toBe(true);
+    const message = errorTextOf(result);
+    expect(message).toContain("revenue");
+    expect(message).toContain("重複");
+  });
+
   it("series[].color 非 hex 格式時回傳驗證錯誤", () => {
     const result = buildLineChartResult({
       ...validInput,
@@ -577,6 +600,53 @@ describe("buildScatterChartResult 的氣泡大小", () => {
 
     expect(result.isError).toBeFalsy();
     expect(chartOf(result)).toEqual({ type: "scatter", ...input });
+  });
+
+  /**
+   * 「用數列表達分組」的誤解：想比較 B2B／B2C／經銷商三個族群，卻讓三組數列
+   * 都指向同一個 `avgOrder` 欄位。散佈圖最容易踩到——分群比較正是它的主要用途。
+   * 錯誤訊息須指出正確形狀（每個族群各一個欄位），否則 LLM 改不動。
+   */
+  it("多組數列共用同一個欄位時回傳 isError，訊息指出正確形狀", () => {
+    const result = buildScatterChartResult({
+      title: "客戶族群行為比較",
+      data: [
+        { freq: 12, avgOrder: 8500 },
+        { freq: 30, avgOrder: 1200 },
+      ],
+      xKey: "freq",
+      series: [
+        { key: "avgOrder", label: "B2B 企業客戶" },
+        { key: "avgOrder", label: "B2C 一般消費者" },
+        { key: "avgOrder", label: "經銷商 partner" },
+      ],
+    });
+
+    expect(result.isError).toBe(true);
+    const message = errorTextOf(result);
+    expect(message).toContain("avgOrder");
+    expect(message).toContain("重複");
+    // 只說「重複」不夠——須告訴 LLM 每個族群要各有一個欄位。
+    expect(message).toContain("各有一個欄位");
+  });
+
+  // 正確形狀：每個族群一個欄位，共用同一條 X 軸。
+  it("每個族群各有一個欄位時通過", () => {
+    const result = buildScatterChartResult({
+      title: "客戶族群行為比較",
+      data: [
+        { freq: 12, b2b: 8500, b2c: 780, partner: 3200 },
+        { freq: 30, b2b: 9100, b2c: 950, partner: 3600 },
+      ],
+      xKey: "freq",
+      series: [
+        { key: "b2b", label: "B2B 企業客戶" },
+        { key: "b2c", label: "B2C 一般消費者" },
+        { key: "partner", label: "經銷商 partner" },
+      ],
+    });
+
+    expect(result.isError).toBeFalsy();
   });
 
   it("sizeKey 不存在於 data 時回傳 isError 並附上可用欄位", () => {

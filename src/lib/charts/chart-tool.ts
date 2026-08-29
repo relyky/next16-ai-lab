@@ -213,11 +213,11 @@ export const scatterChartInputShape = {
         "未提供時所有資料點大小相同"
     ),
   /**
-   * 氣泡大小這個維度在圖例上的顯示名稱與單位。
+   * 氣泡大小這個維度在 Tooltip 上的顯示名稱與單位。
    *
-   * 氣泡大小是三個維度中唯一沒有軸刻度可依附的——它在圖例區自成一項
-   * 「大小：{sizeLabel ?? sizeKey}」。`sizeLabel` 未提供時回退 `sizeKey`，
-   * 與 `series[].label` 的既有模式一致。`sizeUnit` 反映在 Tooltip 的氣泡數值上。
+   * 氣泡大小是三個維度中唯一沒有軸刻度可依附的。它曾在圖例區自成一項
+   * 「大小：{sizeLabel ?? sizeKey}」（ADR 0006），該項已移除，兩者改由 Tooltip
+   * 單獨承載。`sizeLabel` 未提供時回退 `sizeKey`，與 `series[].label` 的既有模式一致。
    *
    * 兩者皆選填，且只在提供 `sizeKey` 時有意義。
    */
@@ -225,7 +225,7 @@ export const scatterChartInputShape = {
     .string()
     .min(1)
     .optional()
-    .describe("氣泡大小在圖例上的顯示名稱；未提供時使用 sizeKey"),
+    .describe("氣泡大小在 Tooltip 上的顯示名稱；未提供時使用 sizeKey"),
   sizeUnit: z
     .string()
     .min(1)
@@ -398,6 +398,26 @@ function findMissingCategoryAndSeriesKeys(
     return toolError(
       `series 的欄位 ${missingSeries.map((k) => `"${k}"`).join("、")} 不存在於 data 中；` +
         `可用欄位為：${availableKeys.join("、")}`
+    );
+  }
+
+  // 同一個欄位被兩組數列共用時，畫出來是幾條完全重疊的線／幾組重疊的點——
+  // 後面的蓋住前面的，看起來只有一組，而圖例卻列出好幾個名稱。前端也會撞上
+  // React 的重複 key（`key={s.key}`），整張圖直接不渲染。
+  //
+  // 最常見的來源是「用數列表達分組」的誤解：想比較 B2B／B2C／經銷商，
+  // 卻讓三組都指向同一個 avgOrder 欄位。正確的形狀是每組一個欄位，
+  // 故錯誤訊息直接把這條路指出來，LLM 才改得動。
+  const duplicatedKeys = series
+    .map((s) => s.key)
+    .filter((key, index, keys) => keys.indexOf(key) !== index);
+  if (duplicatedKeys.length > 0) {
+    const unique = [...new Set(duplicatedKeys)];
+    return toolError(
+      `series 的欄位 ${unique.map((k) => `"${k}"`).join("、")} 重複；` +
+        "每組數列須各自對應 data 中不同的欄位——" +
+        "若要比較多個族群，請讓每個族群各有一個欄位（如 b2b、b2c、partner），" +
+        "而非多組數列共用同一個欄位"
     );
   }
 
