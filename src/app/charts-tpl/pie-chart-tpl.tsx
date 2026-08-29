@@ -16,7 +16,7 @@
  * 每個類別都回退第一個顏色，畫出來會是四個同色扇形——看起來很像著色壞掉，
  * 其實是這層漏掉了。
  */
-import { ChartCard, ChartPaletteProvider } from "@/components/chart-card";
+import { CHART_KIND_LABEL, ChartCard, ChartPaletteProvider } from "@/components/chart-card";
 import type { ChartDefinition } from "@/lib/charts/chart-tool";
 
 const COST_BREAKDOWN: ChartDefinition = {
@@ -51,6 +51,10 @@ export function PieChartTpl() {
   return (
     <ChartPaletteProvider charts={[COST_BREAKDOWN, COST_BREAKDOWN_TONED]}>
       <div className="flex flex-col gap-4">
+        {/* 圖種標在卡片外：樣板頁用它區隔各段，卡片本身不帶這個標示。 */}
+        <h3 className="text-base font-semibold">
+          {CHART_KIND_LABEL[COST_BREAKDOWN.type]}
+        </h3>
         <ChartCard chart={COST_BREAKDOWN} />
         <ChartCard chart={COST_BREAKDOWN_TONED} />
       </div>
